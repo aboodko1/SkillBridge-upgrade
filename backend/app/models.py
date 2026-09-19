@@ -3,8 +3,9 @@
 Pure functions over sqlite3 Row dictionaries. Kept free of framework imports so
 they can be unit tested in isolation.
 """
-from .database import get_cursor
+from .database import get_cursor, MAX_ROLE_VIEW_EVENTS
 from . import role_intent
+from . import skill_registry
 import contextlib
 import datetime as dt
 import json
@@ -308,6 +309,304 @@ def remove_saved_role(student_id, role_id):
         return True
 
 
+# ------------------------------------------------------------------ job tracker (Phase K)
+# Private, per-student application tracker. Stage vocabulary is EXACTLY the ten
+# guide stages; transitions are validated against an allow-list and every stage
+# change is appended to tracker_stage_history (an audit record, never rewritten).
+
+JOB_TRACKER_STAGES = (
+    "saved", "preparing", "applied", "screening", "interview", "offer", "hired",
+    "rejected", "withdrawn", "archived_or_expired",
+)
+
+JOB_TRACKER_TRANSITIONS = {
+    "saved": {"preparing", "applied", "archived_or_expired"},
+    "preparing": {"applied", "withdrawn", "archived_or_expired"},
+    "applied": {"screening", "interview", "rejected", "withdrawn", "archived_or_expired"},
+    "screening": {"interview", "rejected", "archived_or_expired"},
+    "interview": {"offer", "rejected", "withdrawn", "archived_or_expired"},
+    "offer": {"hired", "rejected", "withdrawn", "archived_or_expired"},
+    "hired": {"archived_or_expired"},
+    "rejected": {"archived_or_expired"},
+    "withdrawn": {"saved", "archived_or_expired"},
+    # archived/expired rows stay stored forever; a student may reactivate one.
+    "archived_or_expired": {"saved", "preparing", "applied"},
+}
+
+
+class TrackerError(Exception):
+    """Tracker validation error; ``code`` becomes the HTTP status.
+
+    400 = unknown stage / bad payload, 409 = know legal stage but not reachable
+    from the row's current stage (delete or transition refusal)."""
+
+    def __init__(self, message, code=400):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
+def _validate_iso_date(value, field):
+    if value is None or str(value).strip() == "":
+        return None
+    s = str(value).strip()
+    if len(s) != 10 or not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        raise TrackerError(f"{field} must be an ISO date (YYYY-MM-DD)")
+    return s
+
+
+def _tracker_history_rows(tracker_id, conn=None):
+    """Append-only stage-history rows for one tracker entry (oldest first)."""
+    rows = conn.execute(
+        "SELECT id, stage, changed_from, note, created_at FROM tracker_stage_history "
+        "WHERE tracker_id=? ORDER BY id", (tracker_id,)).fetchall()
+    return [{"id": r["id"], "stage": r["stage"], "changed_from": r["changed_from"],
+             "note": r["note"], "created_at": r["created_at"]} for r in rows]
+
+
+def _tracker_row(tracker_id, conn):
+    row = conn.execute(
+        "SELECT * FROM student_job_tracker WHERE id=?", (tracker_id,)).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"], "student_id": row["student_id"], "fingerprint": row["fingerprint"],
+        "title": row["title"], "company": row["company"], "url": row["url"],
+        "apply_url": row["apply_url"], "location": row["location"], "country": row["country"],
+        "provider": row["provider"], "source": row["source"], "match_pct": row["match_pct"],
+        "work_type": row["work_type"], "seniority": row["seniority"],
+        "listing_status": row["listing_status"], "link_state": row["link_state"],
+        "is_expired": bool(row["is_expired"]), "stage": row["stage"], "note": row["note"],
+        "interview_date": row["interview_date"], "application_deadline": row["application_deadline"],
+        "created_at": row["created_at"], "updated_at": row["updated_at"],
+        "history": _tracker_history_rows(tracker_id, conn),
+    }
+
+
+def save_job_snapshot(student_id, job):
+    """Idempotently snapshot a normalized live-feed job into the tracker.
+
+    ``job`` must be the surfaced feed record (with ``fingerprint``). The
+    snapshot is stored as-is at save time and is NEVER re-derived from the live
+    feed on read, so the row survives feed churn/expiry honestly. Returns
+    ``(tracker_id, created)`` — created is False when the row already existed
+    (UNIQUE(student_id, fingerprint))."""
+    if not (job or {}).get("fingerprint"):
+        raise TrackerError("A saved job needs its feed fingerprint")
+    now = _now()
+    fields = {
+        "fingerprint": job["fingerprint"],
+        "title": (job.get("title") or "").strip() or "Untitled listing",
+        "company": (job.get("company") or "").strip(),
+        "url": job.get("url") or "",
+        "apply_url": job.get("apply_url") or "",
+        "location": job.get("location") or "",
+        "country": job.get("country") or "",
+        "provider": job.get("provider"),
+        "source": job.get("source"),
+        "match_pct": job.get("match_pct"),
+        "work_type": job.get("work_type"),
+        "seniority": job.get("seniority"),
+        "listing_status": job.get("listing_status"),
+        "link_state": job.get("link_state"),
+        "is_expired": 1 if job.get("is_expired") else 0,
+    }
+    with get_cursor() as c:
+        existing = c.execute("SELECT id FROM student_job_tracker "
+                             "WHERE student_id=? AND fingerprint=?",
+                             (student_id, fields["fingerprint"])).fetchone()
+        if existing:
+            return existing["id"], False
+        tracker_id = c.execute(
+            "INSERT INTO student_job_tracker (student_id, fingerprint, title, company, url,"
+            " apply_url, location, country, provider, source, match_pct, work_type, seniority,"
+            " listing_status, link_state, is_expired, stage, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (student_id, fields["fingerprint"], fields["title"], fields["company"],
+             fields["url"], fields["apply_url"], fields["location"], fields["country"],
+             fields["provider"], fields["source"], fields["match_pct"], fields["work_type"],
+             fields["seniority"], fields["listing_status"], fields["link_state"],
+             fields["is_expired"], "saved", now, now),
+        ).lastrowid
+        c.execute("INSERT INTO tracker_stage_history (tracker_id, stage, changed_from, note, created_at)"
+                  " VALUES (?,?,?,?,?)",
+                  (tracker_id, "saved", None, "Saved from the job feed", now))
+        return tracker_id, True
+
+
+def list_job_tracker(student_id):
+    """Tracker entries for a student, newest-updated first, each with its
+    append-only stage history. Private to the student."""
+    with get_cursor() as c:
+        rows = c.execute("SELECT id FROM student_job_tracker WHERE student_id=?"
+                         " ORDER BY updated_at DESC, id DESC", (student_id,)).fetchall()
+        return [_tracker_row(r["id"], c) for r in rows]
+
+
+def get_tracker_entry(student_id, tracker_id):
+    with get_cursor() as c:
+        row = c.execute("SELECT id FROM student_job_tracker WHERE id=? AND student_id=?",
+                        (tracker_id, student_id)).fetchone()
+        return _tracker_row(row["id"], c) if row else None
+
+
+def update_tracker_entry(student_id, tracker_id, stage=None, note=None,
+                         interview_date=None, application_deadline=None):
+    """Apply a validated patch. Stage changes go through the transition
+    allow-list and append an audit row; re-applying the same stage is a no-op
+    that never writes history. Returns the refreshed entry."""
+    with get_cursor() as c:
+        row = c.execute("SELECT * FROM student_job_tracker WHERE id=? AND student_id=?",
+                        (tracker_id, student_id)).fetchone()
+        if row is None:
+            raise TrackerError("Tracker entry not found", 404)
+        now = _now()
+        updates = {}
+        new_stage = None
+        if stage is not None:
+            if stage not in JOB_TRACKER_STAGES:
+                raise TrackerError(f"Unknown stage '{stage}'")
+            if stage != row["stage"] and stage not in JOB_TRACKER_TRANSITIONS.get(row["stage"], set()):
+                raise TrackerError(f"Cannot move a '{row['stage']}' job to '{stage}'", 409)
+            new_stage = stage
+        if note is not None:
+            updates["note"] = str(note or "").strip()
+        death_line = _validate_iso_date(interview_date, "interview_date")
+        if death_line is not None or interview_date is not None:
+            updates["interview_date"] = death_line
+        deadline = _validate_iso_date(application_deadline, "application_deadline")
+        if deadline is not None or application_deadline is not None:
+            updates["application_deadline"] = deadline
+        if not updates and new_stage is None:
+            return _tracker_row(tracker_id, c)
+        values = list(updates.values())
+        sets = [f"{k}=?" for k in updates]
+        if new_stage is not None:
+            sets.append("stage=?")
+            values.append(new_stage)
+        values.extend([now, tracker_id, student_id])
+        c.execute(f"UPDATE student_job_tracker SET {', '.join(sets)}, updated_at=? "
+                  f"WHERE id=? AND student_id=?", values)
+        if new_stage is not None and new_stage != row["stage"]:
+            history_note = updates.get("note", "") or ""
+            c.execute("INSERT INTO tracker_stage_history (tracker_id, stage, changed_from, note, created_at)"
+                      " VALUES (?,?,?,?,?)",
+                      (tracker_id, new_stage, row["stage"], history_note, now))
+        return _tracker_row(tracker_id, c)
+
+
+def archive_tracker_entry(student_id, tracker_id):
+    """Archive a tracked job (-> archived_or_expired). The record is NEVER
+    destroyed — the stage row (and its history) stays stored forever."""
+    with get_cursor() as c:
+        row = c.execute("SELECT stage FROM student_job_tracker WHERE id=? AND student_id=?",
+                        (tracker_id, student_id)).fetchone()
+        if row is None:
+            raise TrackerError("Tracker entry not found", 404)
+        if row["stage"] == "archived_or_expired":
+            return _tracker_row(tracker_id, c)
+    return update_tracker_entry(student_id, tracker_id, stage="archived_or_expired")
+
+
+def delete_saved_only(student_id, tracker_id):
+    """Delete ONLY a tracker row still in 'saved'. Anything beyond saved must
+    keep its history — the caller gets ``TrackedError`` 409 with the reason."""
+    with get_cursor() as c:
+        row = c.execute("SELECT stage FROM student_job_tracker WHERE id=? AND student_id=?",
+                        (tracker_id, student_id)).fetchone()
+        if row is None:
+            raise TrackerError("Tracker entry not found", 404)
+        if row["stage"] != "saved":
+            raise TrackerError(
+                f"A '{row['stage']}' job keeps its history — archive it instead of deleting", 409)
+        c.execute("DELETE FROM student_job_tracker WHERE id=? AND student_id=?",
+                  (tracker_id, student_id))
+        return True
+
+
+def report_job_link(student_id, job):
+    """Idempotently record a student's report about a job link.
+
+    This deliberately does not mark a provider record dead or hide it for
+    anyone else: reports require later manual verification.
+    """
+    if not (job or {}).get("fingerprint"):
+        raise TrackerError("A link report needs a job fingerprint")
+    with get_cursor() as c:
+        existing = c.execute("SELECT id FROM job_link_reports WHERE student_id=? AND fingerprint=?",
+                             (student_id, job["fingerprint"])).fetchone()
+        if existing:
+            return existing["id"], False
+        report_id = c.execute(
+            "INSERT INTO job_link_reports (student_id, fingerprint, url, title, provider, reported_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (student_id, job["fingerprint"], job.get("apply_url") or job.get("url") or "",
+             job.get("title") or "", job.get("provider") or job.get("source") or "", _now()),
+        ).lastrowid
+        return report_id, True
+
+
+def list_job_link_reports(student_id):
+    with get_cursor() as c:
+        rows = c.execute("SELECT id, fingerprint, url, title, provider, reported_at "
+                         "FROM job_link_reports WHERE student_id=? ORDER BY reported_at DESC, id DESC",
+                         (student_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def record_role_view(student_id, role_id):
+    """Record a student opening a role's details (Phase L recently-viewed). A
+    re-view bumps ``viewed_at`` (moves the role back to the top of the list)
+    and never duplicates. Raises ``ValueError`` for an unknown role. The
+    per-student list is capped at ``MAX_ROLE_VIEW_EVENTS`` newest rows."""
+    with get_cursor() as c:
+        exists = c.execute("SELECT id FROM roles WHERE id=?", (role_id,)).fetchone()
+        if exists is None:
+            raise ValueError(f"Role {role_id} not found")
+        now = _now()
+        c.execute(
+            "INSERT INTO role_view_events (student_id, role_id, viewed_at) VALUES (?,?,?) "
+            "ON CONFLICT(student_id, role_id) DO UPDATE SET viewed_at=excluded.viewed_at",
+            (student_id, role_id, now))
+        c.execute(
+            "DELETE FROM role_view_events WHERE student_id=? AND role_id NOT IN ("
+            "SELECT role_id FROM role_view_events WHERE student_id=? "
+            "ORDER BY viewed_at DESC, role_id DESC LIMIT ?)",
+            (student_id, student_id, MAX_ROLE_VIEW_EVENTS))
+        return now
+
+
+def list_recent_role_views(student_id):
+    """A student's recently-viewed roles, newest-first (capped at the same
+    limit). Only additive, real role columns ride along (never fabricated) and
+    the company name comes from the LEFT JOIN — company-authored roles keep
+    their author context, ESCO/catalogue roles stay reference rows."""
+    with get_cursor() as c:
+        rows = c.execute(
+            "SELECT v.viewed_at, r.id, r.title, r.description, r.company_id, r.source, "
+            "r.external_id, r.is_reference, r.canonical_role_id, r.canonical_mapping_updated_at, "
+            "r.family, r.source_version, r.canonical_status, r.role_key, c.name AS company_name "
+            "FROM role_view_events v "
+            "JOIN roles r ON r.id = v.role_id "
+            "LEFT JOIN companies c ON c.id = r.company_id "
+            "WHERE v.student_id=? ORDER BY v.viewed_at DESC, v.role_id DESC LIMIT ?",
+            (student_id, MAX_ROLE_VIEW_EVENTS)).fetchall()
+        return [_row(r) for r in rows]
+
+
+def roles_catalog_version():
+    """Newest ``source_version`` among reference catalogue roles (max over real
+    pinned import versions), or ``None`` when no reference row carries one —
+    never synthesized. Drives the honest catalogue-version meta line."""
+    with get_cursor() as c:
+        row = c.execute(
+            "SELECT MAX(source_version) AS ver FROM roles "
+            "WHERE is_reference=1 AND source_version IS NOT NULL AND source_version != ''"
+        ).fetchone()
+        ver = (row["ver"] or "").strip() if row else ""
+        return ver or None
+
+
 def create_role(company_id, title, required_skills, description=None, is_reference=0, source="company",
                 parent_role_id=None, source_version=None, aliases=(), isco_codes=(), external_id=None,
                 fetched_at=None):
@@ -578,6 +877,70 @@ def role_skill_sources(role_id):
         return {r["skill_id"]: _row(r) for r in rows}
 
 
+def related_roles(role_id):
+    """Roles reachable through a *maintained* relationship ONLY: the real
+    parent_role_id / family / superseded_by_role_id links. Never invents career
+    transitions; no relationship => None / empty lists. Children, siblings and
+    superseded-by links are restricted to active roles (mirrors Phase D status
+    gating); the direct parent and the superseded_by target are shown as-is
+    because they are the role's own real links."""
+    with get_cursor() as c:
+        def role_row(rid):
+            r = c.execute(
+                "SELECT r.*, c.name AS company_name FROM roles r "
+                "LEFT JOIN companies c ON c.id=r.company_id WHERE r.id=?",
+                (rid,)).fetchone()
+            if not r:
+                return None
+            rd = _row(r)
+            rd["required_skills"] = role_skills(c, rid)
+            return rd
+
+        self_row = c.execute("SELECT * FROM roles WHERE id=?", (role_id,)).fetchone()
+        if not self_row:
+            return None
+        parent = role_row(self_row["parent_role_id"]) if self_row["parent_role_id"] else None
+        children = []
+        for r in c.execute(
+                "SELECT r.*, c.name AS company_name FROM roles r "
+                "LEFT JOIN companies c ON c.id=r.company_id "
+                "WHERE r.parent_role_id=? AND " + _ACTIVE_ROLE_CLAUSE +
+                " ORDER BY r.title", (role_id,)).fetchall():
+            rd = _row(r)
+            rd["required_skills"] = role_skills(c, r["id"])
+            children.append(rd)
+        siblings = []
+        fam = (self_row["family"] or "").strip()
+        if fam:
+            for r in c.execute(
+                    "SELECT r.*, c.name AS company_name FROM roles r "
+                    "LEFT JOIN companies c ON c.id=r.company_id "
+                    "WHERE r.family=? AND r.id <> ? AND "
+                    "(r.parent_role_id IS NULL OR r.parent_role_id <> ?) AND "
+                    + _ACTIVE_ROLE_CLAUSE +
+                    " ORDER BY r.title", (fam, role_id, role_id)).fetchall():
+                rd = _row(r)
+                rd["required_skills"] = role_skills(c, r["id"])
+                siblings.append(rd)
+        supersedes = []
+        for r in c.execute(
+                "SELECT r.*, c.name AS company_name FROM roles r "
+                "LEFT JOIN companies c ON c.id=r.company_id "
+                "WHERE r.superseded_by_role_id=? AND " + _ACTIVE_ROLE_CLAUSE +
+                " ORDER BY r.title", (role_id,)).fetchall():
+            rd = _row(r)
+            rd["required_skills"] = role_skills(c, r["id"])
+            supersedes.append(rd)
+        superseded_by = role_row(self_row["superseded_by_role_id"]) if self_row["superseded_by_role_id"] else None
+    return {
+        "parent": parent,
+        "children": children,
+        "siblings": siblings,
+        "supersedes": supersedes,
+        "superseded_by": superseded_by,
+    }
+
+
 def role_provenance(role_id):
     """Full canonical metadata for one role: fields + aliases + ISCO codes +
     per-skill provenance. Mirrors the role's own source - a locally authored
@@ -603,6 +966,7 @@ def role_provenance(role_id):
         "isco_codes": role_isco_codes(role["id"]),
         "skill_sources": role_skill_sources(role["id"]),
         "mapping": mapping_of(role["id"]),
+        "related": related_roles(role["id"]),
     }
 
 
@@ -772,6 +1136,72 @@ def student_verified(cur, student_id):
         WHERE v.student_id=? ORDER BY s.name""", (student_id,)).fetchall()]
 
 
+# ------------------------------------------------------------------ Phase Q: prepare-for-job skill readiness
+
+def _skill_lookup_key(name):
+    """Exact-only canonical lookup key for a skill name (never fuzzy)."""
+    canon, _ = skill_registry.normalise_name(name)
+    return ((canon or "").strip() or (name or "").strip()).lower()
+
+
+def prepare_job_view(student, job):
+    """Readiness view for a surfaced feed job the student is considering.
+
+    Pure data mapping over the student's OWN verified + self-reported skill
+    rows and the job's ``required_skills`` names. Resolution is explicit
+    canonical-name lookup against the ``skills`` table — ``skill_id`` is a REAL
+    skills row id or null, a name with no skills row is honestly ``no_path``
+    (never a guessed gap), and student skill rows are never fabricated."""
+    required = [str(n).strip() for n in (job.get("required_skills") or []) if str(n).strip()]
+    verified = student.get("verified_skills") or []
+    reported = student.get("self_reported_skills") or []
+    vmap, rmap = {}, {}
+    for v in verified:
+        vmap.setdefault(_skill_lookup_key(v.get("name")), v)
+    for r in reported:
+        rmap.setdefault(_skill_lookup_key(r.get("name")), r)
+
+    skills = []
+    for name in required:
+        canon, _ = skill_registry.normalise_name(name)
+        lookup = (canon or name).strip()
+        key = lookup.lower()
+        db_row = get_skill_by_name(lookup) if lookup else None
+        matched = vmap.get(key) or rmap.get(key)
+        if key in vmap:
+            status = "verified"
+        elif key in rmap:
+            status = "self_reported"
+        elif db_row:
+            status = "gap"
+        else:
+            status = "no_path"
+        item = {
+            "name": name,
+            "skill_id": (db_row["id"] if db_row and db_row.get("id")
+                         else matched.get("skill_id") if matched else None),
+            "status": status,
+        }
+        if matched:
+            item["student_level"] = matched.get("level")
+            if matched.get("verified_at"):
+                item["verified_at"] = matched["verified_at"]
+        skills.append(item)
+
+    return {
+        "job": {
+            "title": job.get("title") or "",
+            "company": job.get("company") or "",
+            "location_label": job.get("location_label"),
+            "match_pct": job.get("match_pct"),
+            "apply_url": job.get("apply_url") or "",
+            "listing_status": job.get("listing_status"),
+            "provider": job.get("provider"),
+        },
+        "skills": skills,
+    }
+
+
 def role_from_id(cur, role_id):
     r = cur.execute("SELECT * FROM roles WHERE id=?", (role_id,)).fetchone()
     if not r:
@@ -929,24 +1359,226 @@ def upsert_career_roadmap(student_id, role_id, roadmap):
 
 # ---------------------------------------------------------------- tutor
 
-def add_tutor_message(student_id, tutor_id, skill_id, role, content):
+VALID_TUTOR_IDS = ("nova", "axel", "sage", "vex")
+
+
+def _conversation_title(content):
+    text = re.sub(r"\s+", " ", (content or "").strip())
+    if not text:
+        return "New conversation"
+    if len(text) <= 56:
+        return text
+    clipped = text[:56].rsplit(" ", 1)[0].strip()
+    return f"{clipped or text[:56].strip()}..."
+
+
+def _conversation_payload(row, message_count=None, last_message_at=None, preview=None):
+    data = _row(row)
+    if not data:
+        return None
+    if message_count is not None:
+        data["message_count"] = int(message_count or 0)
+    if last_message_at is not None:
+        data["last_message_at"] = last_message_at
+    if preview is not None:
+        data["preview"] = preview
+    return data
+
+
+def create_tutor_conversation(student_id, tutor_id, title=None):
+    if tutor_id not in VALID_TUTOR_IDS:
+        raise ValueError("invalid_tutor")
     with get_cursor() as c:
-        cur = c.execute("INSERT INTO tutor_messages (student_id, tutor_id, skill_id, role, content) VALUES (?,?,?,?,?)",
-                        (student_id, tutor_id, skill_id, role, content))
+        cur = c.execute(
+            """
+            INSERT INTO tutor_conversations (student_id, tutor_id, title)
+            VALUES (?, ?, ?)
+            """,
+            (student_id, tutor_id, _conversation_title(title)),
+        )
+        row = c.execute("SELECT * FROM tutor_conversations WHERE id=?", (cur.lastrowid,)).fetchone()
+        return _conversation_payload(row, message_count=0, preview="")
+
+
+def set_tutor_conversation_meta(student_id, conversation_id, mode=None, language=None):
+    """Record the last resolved session metadata on a conversation thread.
+
+    Phase 4D: Live mode (chat/practice/discuss/interview) and the resolved reply
+    language are persisted per thread so History can show what kind of session
+    happened. Each argument is optional; only provided values are written.
+    """
+    if conversation_id is None:
+        return False
+    with get_cursor() as c:
+        row = c.execute(
+            "SELECT id FROM tutor_conversations WHERE student_id = ? AND id = ?",
+            (student_id, conversation_id),
+        ).fetchone()
+        if not row:
+            return False
+        sets, params = [], []
+        if mode is not None:
+            sets.append("mode = ?")
+            params.append(mode)
+        if language is not None:
+            sets.append("language = ?")
+            params.append(language)
+        if not sets:
+            return True
+        sets.append("updated_at = COALESCE(updated_at, datetime('now'))")
+        c.execute(
+            f"UPDATE tutor_conversations SET {', '.join(sets)} WHERE id = ? AND student_id = ?",
+            (*params, conversation_id, student_id),
+        )
+        return True
+
+
+def get_tutor_conversation(student_id, conversation_id):
+    with get_cursor() as c:
+        row = c.execute(
+            """
+            SELECT
+                tc.*,
+                COUNT(tm.id) AS message_count,
+                MAX(tm.created_at) AS last_message_at,
+                (
+                    SELECT content
+                    FROM tutor_messages tm2
+                    WHERE tm2.conversation_id = tc.id
+                    ORDER BY tm2.id DESC
+                    LIMIT 1
+                ) AS preview
+            FROM tutor_conversations tc
+            LEFT JOIN tutor_messages tm ON tm.conversation_id = tc.id
+            WHERE tc.student_id = ? AND tc.id = ?
+            GROUP BY tc.id
+            """,
+            (student_id, conversation_id),
+        ).fetchone()
+        if not row:
+            return None
+        return _conversation_payload(
+            row,
+            message_count=row["message_count"],
+            last_message_at=row["last_message_at"],
+            preview=row["preview"] or "",
+        )
+
+
+def list_tutor_conversations(student_id, include_empty=False):
+    with get_cursor() as c:
+        rows = c.execute(
+            """
+            SELECT
+                tc.*,
+                COUNT(tm.id) AS message_count,
+                MAX(tm.created_at) AS last_message_at,
+                (
+                    SELECT content
+                    FROM tutor_messages tm2
+                    WHERE tm2.conversation_id = tc.id
+                    ORDER BY tm2.id DESC
+                    LIMIT 1
+                ) AS preview
+            FROM tutor_conversations tc
+            LEFT JOIN tutor_messages tm ON tm.conversation_id = tc.id
+            WHERE tc.student_id = ?
+            GROUP BY tc.id
+            HAVING ? = 1 OR COUNT(tm.id) > 0
+            ORDER BY COALESCE(MAX(tm.created_at), tc.updated_at) DESC, tc.id DESC
+            """,
+            (student_id, 1 if include_empty else 0),
+        ).fetchall()
+        return [
+            _conversation_payload(
+                r,
+                message_count=r["message_count"],
+                last_message_at=r["last_message_at"],
+                preview=r["preview"] or "",
+            )
+            for r in rows
+        ]
+
+
+def ensure_tutor_conversation(student_id, tutor_id, conversation_id=None, title_seed=None):
+    if conversation_id is not None:
+        conversation = get_tutor_conversation(student_id, conversation_id)
+        if not conversation:
+            return None
+        if tutor_id and conversation["tutor_id"] != tutor_id:
+            return None
+        return conversation
+    if tutor_id not in VALID_TUTOR_IDS:
+        raise ValueError("invalid_tutor")
+    with get_cursor() as c:
+        row = c.execute(
+            """
+            SELECT *
+            FROM tutor_conversations
+            WHERE student_id = ? AND tutor_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (student_id, tutor_id),
+        ).fetchone()
+        if row:
+            return _conversation_payload(row)
+    return create_tutor_conversation(student_id, tutor_id, title_seed)
+
+
+def add_tutor_message(student_id, tutor_id, skill_id, role, content, conversation_id=None):
+    conversation = None
+    if conversation_id is not None:
+        conversation = get_tutor_conversation(student_id, conversation_id)
+        if not conversation:
+            raise ValueError("conversation_not_found")
+        if tutor_id and conversation["tutor_id"] != tutor_id:
+            raise ValueError("conversation_tutor_mismatch")
+        tutor_id = conversation["tutor_id"]
+    elif tutor_id:
+        conversation = ensure_tutor_conversation(student_id, tutor_id, title_seed=content if role == "user" else None)
+        conversation_id = conversation["id"] if conversation else None
+
+    with get_cursor() as c:
+        cur = c.execute(
+            """
+            INSERT INTO tutor_messages (student_id, tutor_id, skill_id, role, content, conversation_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (student_id, tutor_id, skill_id, role, content, conversation_id),
+        )
+        if conversation_id is not None:
+            if role == "user" and (not conversation or conversation.get("title") == "New conversation"):
+                c.execute(
+                    """
+                    UPDATE tutor_conversations
+                    SET title = ?, updated_at = datetime('now')
+                    WHERE id = ? AND student_id = ?
+                    """,
+                    (_conversation_title(content), conversation_id, student_id),
+                )
+            else:
+                c.execute(
+                    "UPDATE tutor_conversations SET updated_at = datetime('now') WHERE id = ? AND student_id = ?",
+                    (conversation_id, student_id),
+                )
         return _row(c.execute("SELECT * FROM tutor_messages WHERE id=?", (cur.lastrowid,)).fetchone())
 
 
-def list_tutor_messages(student_id, tutor_id=None, skill_id=None):
-    """Messages for one student, optionally scoped to a conversation owner.
+def list_tutor_messages(student_id, tutor_id=None, skill_id=None, conversation_id=None):
+    """Messages for one student, optionally scoped to a real conversation.
 
-    ``tutor_id`` is the conversation owner (nova/axel/sage/vex). Legacy rows
-    written before tutor separation have ``tutor_id`` NULL and are treated as
-    belonging to whichever tutor is viewing them, so existing history stays
-    readable. ``skill_id`` remains an optional extra scope.
+    ``conversation_id`` is the Phase 4A primary chat boundary. Without it, the
+    older tutor-scoped behavior remains available for legacy callers and tests:
+    rows written before tutor separation have ``tutor_id`` NULL and are treated
+    as belonging to whichever tutor is viewing them.
     """
     with get_cursor() as c:
         base, params = "SELECT * FROM tutor_messages WHERE student_id=?", [student_id]
-        if tutor_id:
+        if conversation_id is not None:
+            base += " AND conversation_id=?"
+            params.append(conversation_id)
+        elif tutor_id:
             base += " AND (tutor_id=? OR tutor_id IS NULL)"
             params.append(tutor_id)
         if skill_id:
@@ -957,14 +1589,33 @@ def list_tutor_messages(student_id, tutor_id=None, skill_id=None):
         return [_row(r) for r in rows]
 
 
-def clear_tutor_messages(student_id, tutor_id):
-    """Start a fresh conversation for ONE tutor only.
-
-    Removes that tutor's messages (and legacy NULL-owner rows, which pre-date
-    tutor separation and belong to the single shared conversation) without
-    touching any other tutor's history.
-    """
+def clear_tutor_messages(student_id, tutor_id, conversation_id=None):
+    """Clear only the requested conversation, with legacy tutor-level fallback."""
     with get_cursor() as c:
+        if conversation_id is not None:
+            row = c.execute(
+                """
+                SELECT id
+                FROM tutor_conversations
+                WHERE student_id = ? AND id = ? AND tutor_id = ?
+                """,
+                (student_id, conversation_id, tutor_id),
+            ).fetchone()
+            if not row:
+                return False
+            c.execute("DELETE FROM tutor_messages WHERE student_id=? AND conversation_id=?",
+                      (student_id, conversation_id))
+            c.execute("DELETE FROM tutor_conversation_memory_threads WHERE conversation_id=?",
+                      (conversation_id,))
+            c.execute(
+                """
+                UPDATE tutor_conversations
+                SET title = 'New conversation', updated_at = datetime('now')
+                WHERE student_id = ? AND id = ?
+                """,
+                (student_id, conversation_id),
+            )
+            return True
         c.execute("DELETE FROM tutor_messages WHERE student_id=? AND (tutor_id=? OR tutor_id IS NULL)",
                   (student_id, tutor_id))
         return True
@@ -1019,6 +1670,151 @@ def get_tutor_mode(student_id):
                         (student_id,)).fetchone()
         mode = row["mode"] if row else None
         return (mode or "").strip().lower() or None
+
+
+_COPILOT_CONFIG_JSON_FIELDS = (("traits_json", "traits", []),
+                               ("capabilities_json", "capabilities", {}))
+
+
+def get_copilot_config(student_id):
+    """The student's Build-Your-Copilot configuration, or None.
+
+    Returns the frozen creation snapshot (choice, voice_agent_id, the
+    personality fields that compose the dynamic system prompt, and the enabled
+    capabilities), with the JSON columns decoded to their friendly ``traits`` /
+    ``capabilities`` keys (the same shape as ``copilot.snapshot_for``).
+    ``None`` when no copilot has been built yet — the current fixed four-persona
+    behavior stays unchanged.
+    """
+    with get_cursor() as c:
+        row = c.execute("SELECT * FROM copilot_config WHERE student_id=?",
+                        (student_id,)).fetchone()
+    if not row:
+        return None
+    cfg = dict(row)
+    for src, dst, fallback in _COPILOT_CONFIG_JSON_FIELDS:
+        raw = cfg.pop(src, None)
+        try:
+            cfg[dst] = json.loads(raw or ("[]" if isinstance(fallback, list) else "{}"))
+        except Exception:
+            cfg[dst] = fallback
+    return cfg
+
+
+def set_copilot_config(student_id, cfg):
+    """Create/replace the student's copilot configuration from a snapshot dict.
+
+    ``cfg`` must already carry the frozen preset values (choice, voice_agent_id,
+    name, title, role, specialty, origin, traits, behavior, style, capabilities)
+    — this layer just persists them and never fabricates any field. Upserts the
+    single per-student row; returns the stored config (decoded).
+    """
+    with get_cursor() as c:
+        c.execute("""INSERT INTO copilot_config
+                     (student_id, choice, voice_agent_id, name, title, role,
+                      specialty, origin, traits_json, behavior, style,
+                      capabilities_json)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(student_id) DO UPDATE SET
+                       choice=excluded.choice,
+                       voice_agent_id=excluded.voice_agent_id,
+                       name=excluded.name,
+                       title=excluded.title,
+                       role=excluded.role,
+                       specialty=excluded.specialty,
+                       origin=excluded.origin,
+                       traits_json=excluded.traits_json,
+                       behavior=excluded.behavior,
+                       style=excluded.style,
+                       capabilities_json=excluded.capabilities_json,
+                       updated_at=datetime('now')""",
+                  (student_id,
+                   cfg["choice"], cfg["voice_agent_id"], cfg["name"], cfg["title"],
+                   cfg["role"], cfg["specialty"], cfg["origin"],
+                   json.dumps(cfg["traits"]), cfg["behavior"], cfg["style"],
+                   json.dumps(cfg["capabilities"])))
+    return get_copilot_config(student_id)
+
+
+def clear_copilot_config(student_id):
+    """Remove the student's copilot configuration (back to the fixed personas)."""
+    with get_cursor() as c:
+        c.execute("DELETE FROM copilot_config WHERE student_id=?", (student_id,))
+    return True
+
+
+def get_copilot_onboarding(student_id):
+    """The student's first-run copilot-onboarding record, or a synthetic
+    not_started row when none exists yet.
+
+    The row is DELIBERATELY independent of copilot_config so the "only ask once"
+    rule survives DELETE copilot. ``quiz_answers`` is the decoded raw 3-answer
+    set (empty for skip/manual_change); ``answered_at`` is None while the row is
+    still not_started.
+    """
+    with get_cursor() as c:
+        row = c.execute("SELECT student_id, state, source, quiz_answers_json, answered_at "
+                        "FROM copilot_onboarding WHERE student_id=?", (student_id,)).fetchone()
+    if not row:
+        return {"student_id": student_id, "state": "not_started", "source": "manual_change",
+                "quiz_answers": [], "answered_at": None}
+    d = dict(row)
+    raw = d.pop("quiz_answers_json", None)
+    try:
+        d["quiz_answers"] = json.loads(raw or "[]")
+    except Exception:
+        d["quiz_answers"] = []
+    return d
+
+
+def set_copilot_onboarding(student_id, state, source, answers=None):
+    """Record how/when the first-run copilot question was resolved.
+
+    Upserts the single per-student row. ``state``/``source`` must be one of the
+    documented vocabularies (callers validate); ``answers`` is the raw 3-answer
+    set persisted for audit (empty for skip/manual_change). Sets answered_at to
+    now whenever the row is written.
+    """
+    with get_cursor() as c:
+        c.execute("""INSERT INTO copilot_onboarding
+                     (student_id, state, source, quiz_answers_json, answered_at)
+                     VALUES (?,?,?,?, datetime('now'))
+                     ON CONFLICT(student_id) DO UPDATE SET
+                       state=excluded.state,
+                       source=excluded.source,
+                       quiz_answers_json=excluded.quiz_answers_json,
+                       answered_at=excluded.answered_at""",
+                  (student_id, state, source, json.dumps(answers or [])))
+    return get_copilot_onboarding(student_id)
+
+
+def mark_copilot_manual(student_id):
+    """Source bookkeeping when the student builds a copilot via the settings
+    picker (PUT copilot) rather than the first-run quiz.
+
+    A manual build MEANS the student decided: if the onboarding row is still
+    not_started it is marked completed with source=manual_change (so the
+    first-run modal never appears after a manual pick), and an existing
+    completed/skipped row just records that the latest decision came from the
+    settings. The quiz row itself is never re-opened by this path.
+    """
+    with get_cursor() as c:
+        row = c.execute("SELECT state FROM copilot_onboarding WHERE student_id=?",
+                        (student_id,)).fetchone()
+        if row is None:
+            c.execute("""INSERT INTO copilot_onboarding
+                         (student_id, state, source, quiz_answers_json, answered_at)
+                         VALUES (?, 'completed', 'manual_change', '[]', datetime('now'))""",
+                      (student_id,))
+        elif row["state"] == "not_started":
+            c.execute("""UPDATE copilot_onboarding
+                         SET state='completed', source='manual_change',
+                             answered_at=datetime('now')
+                         WHERE student_id=?""", (student_id,))
+        else:
+            c.execute("UPDATE copilot_onboarding SET source='manual_change' WHERE student_id=?",
+                      (student_id,))
+    return get_copilot_onboarding(student_id)
 
 
 def start_active_assessment(student_id, skill_id, external_token=None, webcam_gate=None):
@@ -1630,6 +2426,20 @@ def update_path_progress(student_id, skill_id, progress):
     return get_personalized_path(student_id, skill_id)
 
 
+def get_latest_completed_diagnostic(student_id, skill_id):
+    """The most recent COMPLETED diagnostic for a (student, skill), or None.
+
+    A personalized path belongs to exactly one diagnostic.  Comparing this id
+    with a path's stored ``diagnostic_id`` is how currency ("stale") is decided.
+    """
+    with get_cursor() as c:
+        return _row(c.execute(
+            """SELECT * FROM learning_diagnostics
+               WHERE student_id=? AND skill_id=? AND completed_at IS NOT NULL
+               ORDER BY id DESC LIMIT 1""",
+            (student_id, skill_id)).fetchone())
+
+
 def _path_dict(d):
     if d is None:
         return None
@@ -1640,11 +2450,18 @@ def _path_dict(d):
     for row in all_rows:
         key = row.get("id") or row.get("competency") or row.get("stage")
         row["state"] = "done" if key in progress else (row.get("state") or "not_started")
+    latest_completed = get_latest_completed_diagnostic(d["student_id"], d["skill_id"])
+    latest_diagnostic_id = latest_completed["id"] if latest_completed else None
+    stale = (latest_diagnostic_id is not None
+             and d.get("diagnostic_id") is not None
+             and latest_diagnostic_id != d["diagnostic_id"])
     return {
         "id": d["id"],
         "student_id": d["student_id"],
         "skill_id": d["skill_id"],
         "diagnostic_id": d["diagnostic_id"],
+        "latest_diagnostic_id": latest_diagnostic_id,
+        "stale": stale,
         "required_level": d.get("required_level"),
         "items": items,
         "stages": stages,

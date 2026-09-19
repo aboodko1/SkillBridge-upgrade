@@ -270,11 +270,11 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
           <span>Opened from your career journey — <b>{focusSkillName}</b> is highlighted below. Assessment results only ever change verification through a passed attempt.</span>
         </div>
       )}
-      <section className="assessment-hero">
+      <section className="assessment-hero hcard-hero">
         <div>
           <p className="eyebrow">Assessments</p>
           <h1>Turn claimed skills into verified evidence.</h1>
-          <p>Generated questions, integrity checks, and pass results continue to use the existing assessment pipeline.</p>
+          <p>Choose one skill, complete its assessment, and add trusted evidence to your profile.</p>
         </div>
         <div className="hero-metrics">
           <div className="hero-metric gaps">
@@ -1093,7 +1093,7 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
 
   if (mode === 'practice' && practiceData) {
     return (
-      <div className="learning-item open" style={{ border: '1.5px solid var(--coral)' }}>
+      <div className="learning-item open" style={{ border: '1.5px solid var(--sb-indigo)' }}>
         <div className="li-body" style={{ display: 'block', padding: 16 }}>
           <h4 style={{ marginBottom: 6 }}>Practice review: {gap.skill_name}</h4>
           <p className="small muted mb">
@@ -1349,7 +1349,7 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
   }
 
   return (
-    <div className="verify-item" data-skill-id={gap.skill_id}>
+    <div className="verify-item hcard-info" data-skill-id={gap.skill_id}>
       <span className={`verify-icon ${categoryToneFor(gap.category)}`}>
         <IconAssessment size={17} />
       </span>

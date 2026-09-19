@@ -46,7 +46,7 @@ export default function UniversityPage() {
         </div>
       )}
       <div className={`rule-banner ${ruleSatisfied ? '' : 'blocking'}`}>
-        <IconAlert size={17} style={{ color: ruleSatisfied ? 'var(--coral)' : 'var(--amber)' }} />
+        <IconAlert size={17} style={{ color: ruleSatisfied ? 'var(--sb-indigo)' : 'var(--amber)' }} />
         <div>
           <strong>Privacy &amp; minimum-cohort rule.</strong> University admins see only anonymized,
           aggregated statistics — there is no path to an individual student's data. Statistics are
@@ -76,24 +76,24 @@ export default function UniversityPage() {
       ) : (
         <div>
           <div className="stats-grid">
-            <div className="stat-card">
+            <div className="stat-card hcard-progress">
               <span className="label">Students in Cohort</span>
               <strong>{data.student_count ?? rule?.student_count ?? '–'}</strong>
               <small>{data.with_target_role ?? 0} with a target role</small>
             </div>
-            <div className="stat-card">
+            <div className="stat-card hcard-progress">
               <span className="label">Average Match Score</span>
               <strong>{data.average_match_score != null ? Math.round(data.average_match_score) : '–'}%</strong>
               <small>Across the cohort</small>
             </div>
-            <div className="stat-card">
+            <div className="stat-card hcard-progress">
               <span className="label">Verified Skills Earned</span>
               <strong>{data.verified_skills_total ?? 0}</strong>
               <small>{data.assessments_total ?? 0} assessment attempts logged</small>
             </div>
           </div>
 
-          <div className="card">
+          <div className="card hcard-info">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <IconUniversity size={18} /> Recommended skill gaps across the cohort
             </h3>
@@ -128,7 +128,7 @@ export default function UniversityPage() {
             <div className="divider" />
             <div className="flex" style={{ gap: 18, color: 'var(--slate-500)', fontSize: 12.5, flexWrap: 'wrap' }}>
               <span><IconVerified size={14} style={{ color: 'var(--green)' }} /> Verified skills are counted from passed assessments only.</span>
-              <span><IconShield size={14} style={{ color: 'var(--coral)' }} /> No individual student records are revealed at any point.</span>
+              <span><IconShield size={14} style={{ color: 'var(--sb-indigo)' }} /> No individual student records are revealed at any point.</span>
             </div>
           </div>
         </div>

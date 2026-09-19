@@ -57,6 +57,16 @@ BLUEPRINT = {
         "Intermediate": ["Aggregation", "Joins", "Subqueries", "Indexing basics"],
         "Advanced": ["Window functions", "Query optimization", "Transactions", "Schema design"],
     },
+    # Curated vertical slice: these topics are the only ones with authored,
+    # validated lesson content in ``knowledge_base``.  The blueprint stays
+    # deliberately narrow so the diagnostic and path never invent Python topics
+    # the trusted knowledge base cannot serve.  Python Data Structures is the
+    # next curated pathway after Functions and Error Handling.
+    "python": {
+        "Beginner": ["Python Functions", "Python Error Handling"],
+        "Intermediate": ["Python Data Structures"],
+        "Advanced": [],
+    },
 }
 
 _KNOWN_SKILLS = set(BLUEPRINT)

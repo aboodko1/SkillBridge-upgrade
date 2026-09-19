@@ -1,5 +1,9 @@
 # SkillBridge
 
+![React](https://img.shields.io/badge/React-TypeScript-149eca)
+![FastAPI](https://img.shields.io/badge/FastAPI-Python-009688)
+![Status](https://img.shields.io/badge/status-educational%20prototype-f97316)
+
 SkillBridge is a GenAI-powered career-readiness platform that closes the gap between what
 students learn at university and what companies actually need. It connects students, companies,
 and universities around one loop: a company defines the real skills a role requires, a student's
@@ -9,6 +13,35 @@ Skill Profile** updates so their match to real roles improves.
 
 This is a focused prototype demonstrating the full loop end to end — extraction, personalized
 generation, and verified re-assessment — not a production platform.
+
+> **Team handoff:** start with [`TEAM_HANDOFF_CURRENT_STATUS.md`](TEAM_HANDOFF_CURRENT_STATUS.md).
+> It records the verified build, the exact known UI/accessibility debt, and the next safe work.
+
+## What is in this combined release
+
+- A responsive student workspace with Professional and Casual Pulse presentation modes,
+  light/dark/system appearance, role discovery, a unified career journey, learning paths,
+  practice scenarios, assessments, jobs, and a private application tracker.
+- A configurable AI copilot with four mentor personalities, conversation history, English/Arabic
+  behavior, live speech controls, interview mode, onboarding, and user-controlled collapse/expand.
+- Explainable career-readiness and job-match scores backed by backend calculations rather than
+  decorative frontend percentages.
+- Company role authoring and candidate matching, plus anonymized university cohort analytics.
+- Hardened auth sessions, ordered SQLite migrations, provider-health reporting, request-scoped
+  diagnostics, safe job links, and deterministic offline fallbacks for prototype use.
+
+```mermaid
+flowchart LR
+  C[Company role requirements] --> M[Skill and role matching]
+  S[Student profile and CV] --> M
+  M --> J[Unified career journey]
+  J --> L[Learn and practise]
+  L --> A[Assessment]
+  A --> V[Verified skill profile]
+  V --> M
+  M --> O[Jobs and application tracker]
+  U[University analytics] -. anonymized .-> V
+```
 
 ## Screenshots
 
@@ -70,8 +103,8 @@ your browser. It works the same in **VS Code PowerShell, cmd, Git Bash, WSL, mac
 — no long setup, no separate steps.
 
 ```bash
-git clone https://github.com/khaled1234kh/SkillBridge.git
-cd SkillBridge
+git clone https://github.com/aboodko1/SkillBridge-upgrade.git
+cd SkillBridge-upgrade
 npm start
 ```
 
@@ -160,6 +193,61 @@ Demonstrated against the live server (desktop 1440, tablet 820, mobile 390; cons
 4. **Honesty invariants**: scenario practice lifts *self-reported* confidence only
    and never awards a Verified tag; "Take the Assessment" never implies readiness
    guarantees; nothing auto-changes the target role.
+
+### Explainable matching (Phase J)
+
+Every displayed role/job match now opens a **"How is this score built?"**
+disclosure that decomposes the number into the exact labelled parts the backend
+used — no score is recomputed or changed client-side; the payload is the same
+math that produced the ring. Verified against the live server (desktop 1440 +
+mobile 390, consoles clean):
+
+1. **Dashboard target-role ring** → per-skill table (required level, your level,
+   evidence source) + contribution points and a line-by-line sum ending in the
+   exact `Displayed match`.
+2. **Recommended-deck cards** (Skills & Roles) → required-skill weights vs earned
+   credits (discovery credits labelled), verified matches, skill gap, and the
+   same exact-sum closing line.
+3. **JobsCard feed rows** → relevance (base/family/minor/verified/fresh bonuses),
+   experience fit, location fit, then every adjustment step (raw total, rounding,
+   clamp, seniority/relocation caps) summing exactly to the listed `match_pct`.
+4. **Exact-total invariant**: components + labelled adjustment lines always equal
+   the displayed number; if the decomposition ever can't reproduce it, the
+   backend raises 500 with a documented conflict rather than silently changing
+   the score. Self-reported evidence is never shown as verified; missing external
+   data stays `unknown`/unsupported instead of being invented.
+5. **HTTP**: `GET /api/students/{id}/target-role-match/breakdown`,
+   `GET /api/students/{id}/role-match/breakdown?role_id=|external_id=`,
+   `GET /api/students/{id}/jobs/recent/{fingerprint}/breakdown`.
+
+### Saved jobs & private application tracker (Phase K)
+
+Every "Recent roles for you" row now has a **Save** button that files the actual
+feed snapshot into your private **Applications tracker** — the pipeline snapshot
+is stored at save time and never re-derived, so the record stays honest even if
+the listing later expires or its link goes dead. Verified against the live
+server (desktop 1440 + mobile 390, consoles clean):
+
+1. **Save from the feed** → the row button switches to "Saved · tracked" and the
+   tracker below re-fetches immediately (no page reload).
+2. **Move it through your real workflow** with a stage selector: Saved, Preparing,
+   Applied, Screening, Interview, Offer, Hired, Rejected, Withdrawn, Archived /
+   expired. Each change is validated against an allow-list transition map (an
+   illegal move is rejected with a clear error) and recorded in an append-only
+   history on the card.
+3. **Private notes** stay with the row — note textarea, interview date, and
+   application deadline (all student-only). "Save details" only fires when there
+   is something new to write.
+4. **Archive / reactivate**: Archive is a stage transition, never a destroy; an
+   archived row can be brought back to Saved, Preparing, or Applied.
+5. **Delete** is only offered while a row is still purely **Saved**, and only
+   after a confirm dialog — an applied/offered row can never be quietly deleted.
+6. **Privacy**: the tracker is visible to the student owner only — companies and
+   universities never see it, nothing is emailed, synced, or sent anywhere, and
+   the lock note says exactly that.
+7. **HTTP**:
+   `GET/POST /api/students/{id}/jobs/tracker`, `GET/PATCH/DELETE …/jobs/tracker/{tid}`,
+   `POST /api/students/{id}/jobs/saved`.
 
 ## Accounts, sign-in & verification
 
@@ -255,3 +343,49 @@ aggregated University Dashboard — confirming no browser console errors.
 No webcam/biometric proctoring (integrity signals are simulated), no real job-post scraping,
 no cryptographic credential signing, no payments, no mobile app, no email/calendar
 integrations, and no multi-university or multi-language support.
+
+## Role Explorer (Phase L)
+
+The Skills & Roles **role library** is a self-contained explorer built on the existing page — no
+second catalogue:
+
+- **Recently Viewed** tab — every role whose details you open is recorded (up to 30, newest
+  first), so you can pick up your exploration where you left off. Rows show the role's title,
+  its provenance and role family, and how long ago you viewed it, with Save / Compare /
+  Set target / Details actions. The list is private to you and refreshes as you browse.
+- **Role family** facet — filter the library by the role's real family (roles without one are
+  honestly grouped under "Unclassified").
+- **Smarter search** — the search box debounces as you type and is fully keyboard-navigable:
+  `↑` / `↓` move a highlight ring across the results (announced to screen readers), `Enter`
+  opens the highlighted role, `Esc` clears the highlight.
+- **Clear provenance** — every card says where the role comes from (ESCO import / Canonical
+  catalogue / company) and shows its data version when one really exists. The library header
+  shows `Catalogue data v{version}` only when the backend reports a real reference version.
+- **Deep links** — your place in the explorer (tab, search query, family filter) lives in the
+  URL hash (`#explorer?t=recents&q=…&fam=…`), so reloads and back/forward restore exactly
+  where you were.
+
+## Role details, comparison & career transitions (Phase M)
+
+The role library's detail drawer and compare modal now surface only **sourced** information:
+
+- **Role details** — the drawer shows the role's real aliases (hidden aliases are never shown),
+  essential vs optional skills (grouped by the backend's own `skill_kind`), and for every
+  requirement an evidence badge drawn strictly from your profile: **verified**, **self-reported**,
+  or **none**. A legend sums exactly how many requirements are covered by verified evidence, by
+  self-reported evidence, are missing, or are still developing. Deprecated roles carry an honest
+  banner and are never offered among career-transition suggestions.
+- **Related roles & transitions** — a read-only list/table built from the role graph the backend
+  maintains (`parent` → *moves from*, *specialisations*, same-family *peers*, *supersedes*,
+  *replaced by*). Roles with no maintained relationships say so outright. No graph, no salary, no
+  probability, no timing is ever invented for transitions.
+- **Available jobs** — for each role the drawer consults your own live job feed (one fetch per
+  visit, the same profile-keyed feed the Dashboard uses) and lists the listings whose title
+  overlaps the role — each with its real provider and listing state (live/expired). When the feed
+  is still loading, when you have no CV yet, or when nothing overlaps, the section says so
+  honestly.
+- **Compare (up to 3 roles)** — besides skill match, difficulty and gaps, the comparison now adds
+  a **Shared skills** row, per-role **Unique to {role}** rows, a covered-evidence split
+  ("N verified · N self-reported"), and a **Live jobs** row counting the listings your current
+  feed holds for each role ("None in your feed" when zero, "—" while the feed hasn't loaded).
+  Scores are never recomputed here — the same exact match numbers from the cards are reused.

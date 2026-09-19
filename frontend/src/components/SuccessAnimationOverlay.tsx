@@ -86,7 +86,7 @@ export default function SuccessAnimationOverlay({
     <div className="auth-success-overlay" role="status" aria-live="polite">
       <div className="asv-grid" aria-hidden="true" />
       <div className="asv-logo">
-        <div className="brand-mark asv-mark">S</div>
+        <img src="/skillbridge-mark.svg" alt="" width="48" height="48" />
         <span className="wordmark">SkillBridge</span>
       </div>
       <div className="asv-body">

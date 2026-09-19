@@ -352,8 +352,12 @@ def seed():
         c.executescript("""
             DELETE FROM google_registrations; DELETE FROM password_resets;
             DELETE FROM email_verifications;
-            DELETE FROM sessions; DELETE FROM auth_sessions; DELETE FROM assessment_attempts; DELETE FROM tutor_messages;
+            DELETE FROM sessions; DELETE FROM auth_sessions; DELETE FROM assessment_attempts;
+            DELETE FROM tutor_conversation_memory_threads; DELETE FROM tutor_messages;
+            DELETE FROM tutor_conversations; DELETE FROM tutor_conversation_memory;
+            DELETE FROM copilot_config; DELETE FROM copilot_onboarding; DELETE FROM tutor_preferences;
             DELETE FROM learning_practice_attempts; DELETE FROM scenario_attempts; DELETE FROM saved_roles;
+            DELETE FROM job_link_reports; DELETE FROM role_view_events; DELETE FROM tracker_stage_history; DELETE FROM student_job_tracker;
             DELETE FROM personalized_paths; DELETE FROM learning_lessons;
             DELETE FROM learning_diagnostics; DELETE FROM learning_path_items; DELETE FROM verified_skills;
             DELETE FROM self_reported_skills; DELETE FROM role_skill_sources;
@@ -460,7 +464,7 @@ def seed():
     # completed assessment attempts
     for email, skill_name, score, passed, before, after, nflags in ATTEMPTS:
         sk = models.get_skill_by_name(skill_name)
-        questions = genai.generate_quiz(skill_name, "seed", num_questions=3)
+        questions = genai.generate_quiz(skill_name, "seed", num_questions=3, deterministic=True)
         flags = []
         for i in range(nflags):
             flags.append({"code": "tab_switch", "label": "Tab switch detected", "severity": "warning",
@@ -492,7 +496,11 @@ def _pregen_learning(sid):
     studying = f"Studying at {student['university']}" if student.get("university") else "Independent learner"
     ctx = f"{studying}; focused on becoming a {role['title']}."
     for g in gaps:
-        item = genai.generate_learning_item(g["skill_name"], g.get("category"), role["title"], ctx)
+        # Deterministic seeding: never call an external provider before the port
+        # opens. Provider enrichment is lazy — it happens when the student opens
+        # the skill, not during startup.
+        item = genai.generate_learning_item(
+            g["skill_name"], g.get("category"), role["title"], ctx, deterministic=True)
         models.upsert_learning_item(sid, g["skill_id"], item["explanation"],
                                     item["practice_exercise"], item["mini_project"],
                                     item.get("resources") or [], item.get("roadmap") or None,

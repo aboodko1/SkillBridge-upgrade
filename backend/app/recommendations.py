@@ -300,10 +300,123 @@ def _professional_boundary_warning(title, skills=()):
     )
 
 
-def recommend(student):
+def _score_candidate(cand, profile, specificity):
+    """Pure per-candidate matcher: returns ``(pct, matched, missing, detail)``.
+
+    ``pct`` is the displayed ``match_score`` (the ONLY percent recommend()
+    surfaces); ``matched``/``missing`` feed the public result; ``detail`` is the
+    exact-total decomposition (weight, level_factor, credit per requirement plus
+    ESCO discovery credits) used by the Phase J match breakdown. The arithmetic
+    below IS the recommendation score -- recommend() consumes this function, so
+    the extracted rows and the displayed percent can never drift apart.
+
+    Evidence labels: ``verified`` / ``self_reported`` / ``none``. A missing
+    skill contributes credit 0.0 and is never presented as a penalty. A
+    discovery credit can push ``earned_w`` above ``total_w``; the ``min(100)``
+    clamp is surfaced as a labelled adjustment by the breakdown, never hidden.
+    """
+    total_w = 0.0
+    earned_w = 0.0
+    matched = []
+    missing = []
+    detail = []
+    matched_keys = set()
+    for req in cand["req"]:
+        w = specificity(req["key"]) * (1.0 if req["essential"] else OPTIONAL_WEIGHT)
+        total_w += w
+        hit = profile.get(req["key"])
+        if hit:
+            level_factor = 1.0
+            if req["required_level"]:
+                level_factor = (1.0 if hit["level"] >= req["required_level"]
+                                else hit["level"] / req["required_level"])
+            credit = w * level_factor
+            if hit["verified"]:
+                credit *= (1.0 + VERIFIED_BOOST)
+            earned_w += credit
+            matched_keys.add(req["key"])
+            matched.append({
+                "name": req["name"],
+                "student_level": hit["label"],
+                "required_level": req.get("required_level") and INVERSE[req["required_level"]],
+                "verified": bool(hit["verified"]),
+            })
+            detail.append({
+                "name": req["name"],
+                "required_level": req.get("required_level") and INVERSE[req["required_level"]],
+                "student_level": hit["label"],
+                "evidence": "verified" if hit["verified"] else "self_reported",
+                "essential": bool(req["essential"]),
+                "weight": w,
+                "level_factor": level_factor,
+                "credit": credit,
+                "is_discovery": False,
+                "verified": bool(hit["verified"]),
+            })
+        else:
+            missing.append(req)
+            detail.append({
+                "name": req["name"],
+                "required_level": req.get("required_level") and INVERSE[req["required_level"]],
+                "student_level": None,
+                "evidence": "none",
+                "essential": bool(req["essential"]),
+                "weight": w,
+                "level_factor": None,
+                "credit": 0.0,
+                "is_discovery": False,
+                "verified": False,
+            })
+    # ESCO occupations describe their skills as verb phrases ("present legal
+    # arguments") that almost never lexically equal a profile skill name
+    # ("Client advocacy"). When ESCO itself surfaced the occupation because of
+    # one of the student's skills (discovery ground truth), that profile skill
+    # is matched evidence for the occupation -- otherwise ESCO candidates would
+    # be dropped for every domain except those whose vocabulary coincides with
+    # ESCO phrasing (e.g. "Python").
+    for dkey in cand.get("discovery") or {}:
+        if dkey in matched_keys:
+            continue
+        hit = profile.get(dkey)
+        if not hit:
+            continue
+        credit = specificity(dkey) * 1.0
+        if hit["verified"]:
+            credit *= (1.0 + VERIFIED_BOOST)
+        earned_w += credit
+        matched_keys.add(dkey)
+        matched.append({
+            "name": cand["discovery"][dkey],
+            "student_level": hit["label"],
+            "required_level": None,
+            "verified": bool(hit["verified"]),
+        })
+        detail.append({
+            "name": cand["discovery"][dkey],
+            "required_level": None,
+            "student_level": hit["label"],
+            "evidence": "verified" if hit["verified"] else "self_reported",
+            "essential": False,
+            "is_discovery": True,
+            "weight": specificity(dkey) * 1.0,
+            "level_factor": 1.0,
+            "credit": credit,
+            "verified": bool(hit["verified"]),
+        })
+    pct = round(min(100.0, earned_w / total_w * 100.0), 1) if total_w else 0.0
+    return pct, matched, missing, detail
+
+
+def recommend(student, _include_detail=False):
     """Ranked ``{recommendations, note, esco_status, source_counts}`` for a
     student's trusted profile. Deterministic for a fixed profile + candidate
-    pool; ESCO discovery is supplementary and never blocks local results."""
+    pool; ESCO discovery is supplementary and never blocks local results.
+
+    ``_include_detail`` (private, Phase J) attaches the exact per-requirement
+    score decomposition (the rows behind each ``match_score``) to every result
+    as an additive ``match_detail`` key -- used only by the role-match
+    explanation endpoint so the explained rows and the displayed ring can
+    never drift apart. Public callers are unaffected (default ``False``)."""
     local = [_local_candidate(r) for r in models.list_roles() if _role_is_active(r)]
     local += [_local_candidate(r) for r in models.list_catalog_roles() if _role_is_active(r)]
     profile = _student_skill_profile(student)
@@ -341,60 +454,9 @@ def recommend(student):
 
     results = []
     for cand in candidates:
-        total_w = 0.0
-        earned_w = 0.0
-        matched = []
-        missing = []
-        matched_keys = set()
-        for req in cand["req"]:
-            w = specificity(req["key"]) * (1.0 if req["essential"] else OPTIONAL_WEIGHT)
-            total_w += w
-            hit = profile.get(req["key"])
-            if hit:
-                level_factor = 1.0
-                if req["required_level"]:
-                    level_factor = (1.0 if hit["level"] >= req["required_level"]
-                                    else hit["level"] / req["required_level"])
-                credit = w * level_factor
-                if hit["verified"]:
-                    credit *= (1.0 + VERIFIED_BOOST)
-                earned_w += credit
-                matched_keys.add(req["key"])
-                matched.append({
-                    "name": req["name"],
-                    "student_level": hit["label"],
-                    "required_level": req.get("required_level") and INVERSE[req["required_level"]],
-                    "verified": bool(hit["verified"]),
-                })
-            else:
-                missing.append(req)
-        # ESCO occupations describe their skills as verb phrases ("present legal
-        # arguments") that almost never lexically equal a profile skill name
-        # ("Client advocacy"). When ESCO itself surfaced the occupation because
-        # of one of the student's skills (discovery ground truth), that profile
-        # skill is matched evidence for the occupation -- otherwise ESCO
-        # candidates would be dropped for every domain except those whose
-        # vocabulary coincides with ESCO phrasing (e.g. "Python").
-        for dkey in cand.get("discovery") or {}:
-            if dkey in matched_keys:
-                continue
-            hit = profile.get(dkey)
-            if not hit:
-                continue
-            credit = specificity(dkey) * 1.0
-            if hit["verified"]:
-                credit *= (1.0 + VERIFIED_BOOST)
-            earned_w += credit
-            matched_keys.add(dkey)
-            matched.append({
-                "name": cand["discovery"][dkey],
-                "student_level": hit["label"],
-                "required_level": None,
-                "verified": bool(hit["verified"]),
-            })
+        pct, matched, missing, detail = _score_candidate(cand, profile, specificity)
         if not matched:
             continue
-        pct = round(min(100.0, earned_w / total_w * 100.0), 1) if total_w else 0.0
         missing.sort(key=lambda m: -specificity(m["key"]))
         results.append({
             "role_id": cand["role_id"],
@@ -414,6 +476,8 @@ def recommend(student):
             "regulated_warning": _professional_boundary_warning(cand["title"], cand["skills"]),
             "skills": cand["skills"],
         })
+        if _include_detail:
+            results[-1]["match_detail"] = detail
 
     # Real jobs that exist in the labour market (ESCO occupations and company
     # postings) rank ahead of SkillBridge's local catalog reference roles, so a

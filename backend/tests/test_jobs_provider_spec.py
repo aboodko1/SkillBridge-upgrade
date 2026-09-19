@@ -611,8 +611,9 @@ def test_secrets_never_reach_response_or_status(monkeypatch, sync_build):
     for s in secrets:
         assert s not in serialized
     # 3) direct redaction of a message embedding an Adzuna-style query string
+    #    (URL is masked outright, so no host or secret reaches the payload)
     red = jobs._redact(f"503 for url 'https://api.adzuna.com/v1/api/jobs/gb/search/1?app_id={secrets[1]}&app_key={secrets[2]}'")
-    assert secrets[1] not in red and secrets[2] not in red and "***" in red
+    assert secrets[1] not in red and secrets[2] not in red and "<url>" in red
 
 
 # ======================================================================

@@ -370,10 +370,10 @@ def build_career_roadmap(student, role):
     return {
         "role_title": role_title,
         "resources_version": 4,
-        "summary": (f"A complete, start-to-finish path from zero to a "
-                    f"job-ready {role_title}. Finish every phase and you'll have "
-                    f"the skills, verified evidence, portfolio and interview "
-                    f"readiness to apply with confidence."),
+        "summary": (f"A complete, start-to-finish path toward a job-ready "
+                    f"{role_title}. Each phase builds a skill; verified evidence "
+                    f"comes only from passing the Final Assessments, so work "
+                    f"through the phases to earn it."),
         "student_starting_point": ready,
         "phase_count": len(phases),
         "phases": phases,
@@ -395,7 +395,8 @@ def _checkpoint(idx, ready, role_title, software=True):
         if idx == 5:
             return "You have a polished case study or portfolio piece you can discuss in an interview."
         if idx == 6:
-            return "You have passed the role's skill assessments and can share verified proof."
+            return ("Once you pass the role's Final Assessments, you can share "
+                    "verified proof. Until then, any level here is self-reported.")
         if idx == 7:
             return "You can communicate decisions and respond to stakeholder feedback on realistic tasks."
         if idx == 8:
@@ -416,7 +417,8 @@ def _checkpoint(idx, ready, role_title, software=True):
     if idx == 5:
         return "You have a deployed, documented, portfolio-ready project you can demo in an interview."
     if idx == 6:
-        return "You have passed the role's skill assessments and can share verified proof."
+        return ("Once you pass the role's Final Assessments, you can share "
+                "verified proof. Until then, any level here is self-reported.")
     if idx == 7:
         return "You can describe your experience and work with a team on realistic tasks."
     if idx == 8:

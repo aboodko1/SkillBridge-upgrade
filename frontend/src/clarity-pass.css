@@ -1,0 +1,492 @@
+/* SkillBridge clarity pass
+   A shared hierarchy and spacing layer for every authenticated surface.
+   It intentionally changes presentation only; product data and workflows stay intact. */
+
+:root {
+  --clarity-page-max: 1180px;
+  --clarity-section-gap: 22px;
+  --clarity-card-pad: clamp(18px, 2vw, 24px);
+  --clarity-copy: 66ch;
+}
+
+/* Keep every screen on the same reading rail. */
+.content { max-width: none; min-width: 0; }
+.content > .topbar,
+.content > .demo-banner,
+.content > .skills-page,
+.content > .learning-page,
+.content > .scn-page,
+.content > .assessment-page,
+.content > .institution-banner,
+.content > .rule-banner,
+.content > .stats-grid,
+.content > .card,
+.content > .app-footer {
+  width: min(100%, var(--clarity-page-max));
+  margin-inline: auto;
+}
+
+.skills-page,
+.learning-page,
+.scn-page,
+.assessment-page {
+  min-width: 0;
+}
+
+.skills-page,
+.learning-page,
+.assessment-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--clarity-section-gap);
+}
+
+/* Calm, predictable typography. */
+.skills-page h1,
+.learning-page h1,
+.assessment-page h1,
+.scn-page h1,
+.scn-page h2 {
+  text-wrap: balance;
+  letter-spacing: -.035em;
+}
+
+.skills-page p,
+.learning-page p,
+.assessment-page p,
+.scn-page p,
+.panel-subtitle,
+.card-sub {
+  text-wrap: pretty;
+}
+
+.sro3-hero-sub,
+.learning-hero-copy > p:last-child,
+.assessment-hero > div:first-child > p:last-child,
+.scn-hero-sub {
+  max-width: var(--clarity-copy);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+/* One visual language for containers. */
+.panel,
+.card,
+.srb-card,
+.sro3-recs-card,
+.sro3-roles-card,
+.lp-stat-card,
+.scn-stat,
+.scn-card {
+  border-color: color-mix(in srgb, var(--sb-border) 88%, transparent);
+  box-shadow: 0 4px 18px rgba(13, 27, 42, .045);
+}
+
+.panel:hover,
+.srb-card:hover,
+.lp-stat-card:hover,
+.scn-card:hover {
+  box-shadow: 0 7px 24px rgba(13, 27, 42, .07);
+}
+
+.panel-head {
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.panel-title { font-size: 15px; letter-spacing: -.01em; }
+.panel-subtitle { max-width: 64ch; line-height: 1.55; }
+
+/* Compact page introductions: clear title, concise context, no decorative noise. */
+.sro3-hero,
+.learning-hero,
+.assessment-hero,
+.scn-hero {
+  min-height: 0;
+  padding: clamp(22px, 3vw, 30px);
+  border-radius: 20px;
+  box-shadow: 0 8px 30px rgba(4, 13, 24, .12);
+}
+
+.sro3-hero { grid-template-columns: minmax(0, 1fr); }
+.sro3-hero::after { opacity: .32; transform: scale(.72); }
+.sro3-hero-title { max-width: 24ch; font-size: clamp(25px, 3vw, 34px); }
+
+.learning-hero {
+  grid-template-columns: minmax(0, 1.25fr) minmax(250px, .65fr);
+  gap: 20px;
+}
+.learning-hero .hero-art { display: none !important; }
+.learning-hero-copy h1 { font-size: clamp(25px, 3vw, 34px); margin-bottom: 10px; }
+.hero-target-card { padding: 16px 18px; }
+.hero-target-role { font-size: 18px; margin-bottom: 12px; }
+.learning-hero .search-wrap,
+.learning-hero .learning-tabs { grid-column: 1 / -1; }
+.learning-hero .search-wrap { margin-top: 2px; }
+
+.assessment-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 0;
+}
+.assessment-hero h1 { font-size: clamp(25px, 3vw, 34px); }
+.hero-metrics { grid-template-columns: repeat(3, minmax(104px, 1fr)); gap: 10px; }
+.hero-metric { min-width: 0; padding: 13px 14px; }
+.hero-metric-value { font-size: 22px; }
+
+.scn-hero { align-items: center; }
+.scn-hero-title { margin: 0; font-size: clamp(22px, 2.5vw, 30px) !important; }
+.scn-hero-actions { min-width: 190px; }
+
+/* Controls read as one ordered group instead of a cloud of equal buttons. */
+.rd-tabs,
+.learning-tabs,
+.scn-filterbar {
+  padding: 5px;
+  border: 1px solid var(--sb-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--sb-panel) 94%, var(--sb-background));
+}
+
+.rd-tabs {
+  flex-wrap: nowrap;
+  gap: 3px;
+  margin-bottom: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rd-tabs::-webkit-scrollbar { display: none; }
+.rd-tab { flex: 0 0 auto; border-color: transparent; background: transparent; }
+.rd-tab.on { box-shadow: 0 2px 8px rgba(13, 27, 42, .06); }
+
+.learning-tabs { gap: 4px; }
+.learning-tabs button { min-height: 42px; }
+
+.scn-filterbar { gap: 6px; padding: 8px; }
+.scn-filters { gap: 5px; }
+.scn-filters .chip-btn { min-height: 34px; padding-inline: 12px; }
+
+/* Skills & Roles: summary first, discovery second. */
+.srb-summary { gap: 14px; }
+.srb-card { padding: var(--clarity-card-pad); }
+.srb-target-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 28px;
+  row-gap: 9px;
+  align-content: start;
+  align-items: start;
+}
+.srb-target-card .srb-card-head { display: contents; }
+.srb-target-card .srb-eyebrow,
+.srb-target-card .srb-target-title,
+.srb-target-card .srb-target-meta,
+.srb-target-card > .small,
+.srb-target-card > .btn { grid-column: 1; }
+.srb-target-card .srb-eyebrow { margin: 0; }
+.sro3-page .srb-target-title {
+  margin: 3px 0 0;
+  color: var(--sb-midnight-ink);
+  font-size: clamp(18px, 2vw, 22px);
+  line-height: 1.25;
+}
+.srb-target-card .srb-target-meta { margin: 0; line-height: 1.5; }
+.srb-target-card > .btn { width: fit-content; margin-top: 8px; }
+.srb-target-card .srb-match-ring {
+  grid-column: 2;
+  grid-row: 1 / span 5;
+  align-self: center;
+}
+.srb-match-inner { gap: 5px; padding: 5px; text-align: center; }
+.srb-match-inner strong { font-size: 15px; line-height: 1; }
+.srb-match-label {
+  max-width: 62px;
+  margin-top: 0;
+  font-size: 8.5px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: .06em;
+  text-align: center;
+  text-transform: uppercase;
+}
+.sro3-page .sro3-role-title,
+.sro3-page .srb-ref-title,
+.sro3-page .srb-section-head h3 {
+  color: var(--sb-midnight-ink);
+}
+.sro3-role-title { line-height: 1.35; }
+.srb-profile-card .srb-stat-row { margin-top: 12px; }
+.sro3-recs-card,
+.sro3-roles-card { padding: var(--clarity-card-pad); }
+.srb-grid { gap: 14px; }
+.srb-role { min-width: 0; }
+.srb-role-desc { line-height: 1.55; }
+.srb-filterbar { border-radius: 16px; padding: 14px; }
+.srb-ref-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.srb-ref-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: visible;
+  padding: 6px 0 0;
+}
+.srb-ref-card { min-width: 0; }
+.srb-ref-title { line-height: 1.35; }
+.srb-ref-gap-names { line-height: 1.45; }
+
+/* Learning: the path is primary; supporting data is quieter. */
+.lp-stat-grid { gap: 12px; }
+.lp-stat-card { padding: 15px 16px; gap: 9px; }
+.lp-stat-value { font-size: 19px; }
+.lp-stat-sub { font-size: 11px; line-height: 1.45; }
+.learning-layout { grid-template-columns: minmax(0, 1fr) minmax(270px, 315px); gap: 18px; }
+.path-panel { padding: var(--clarity-card-pad); }
+.path-item-body { min-width: 0; }
+.path-text h3 { line-height: 1.35; }
+
+/* Practice: recommendation first, library second. */
+.scn-page { gap: var(--clarity-section-gap); }
+.scn-stats { gap: 10px; }
+.scn-stat { padding: 12px 14px; }
+.scn-next { padding: var(--clarity-card-pad); }
+.scn-next-body { gap: 20px; }
+.scn-grid { grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
+.scn-card { padding: 17px; }
+.scn-card-desc { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.scn-card-actions { display: flex; gap: 6px; }
+
+/* Assessment: action column receives priority over historical detail. */
+.assessment-layout { grid-template-columns: minmax(0, 1.12fr) minmax(320px, .88fr); gap: 18px; }
+.assessment-panel { padding: var(--clarity-card-pad); }
+.verify-item {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  padding: 13px;
+}
+.verify-icon { grid-column: 1; grid-row: 1; }
+.verify-text { grid-column: 2; grid-row: 1; }
+.verify-lastscore {
+  grid-column: 2;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(80px, 150px) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.verify-lastscore .progress-track { margin: 0; }
+.verify-actions {
+  grid-column: 2;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.history-item { padding: 14px 0; }
+
+/* Consistent button hierarchy and keyboard visibility. */
+.btn-primary { box-shadow: 0 5px 14px color-mix(in srgb, var(--sb-indigo) 18%, transparent); }
+.btn-primary:hover { transform: translateY(-1px); }
+.btn-ghost { box-shadow: none; }
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--sb-indigo) 38%, transparent);
+  outline-offset: 2px;
+}
+
+/* Dark mode keeps separation without bright borders. */
+[data-theme="dark"] .panel,
+[data-theme="dark"] .card,
+[data-theme="dark"] .srb-card,
+[data-theme="dark"] .sro3-recs-card,
+[data-theme="dark"] .sro3-roles-card,
+[data-theme="dark"] .lp-stat-card,
+[data-theme="dark"] .scn-stat,
+[data-theme="dark"] .scn-card {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .13);
+}
+
+@media (max-width: 1080px) {
+  .assessment-hero { grid-template-columns: 1fr; }
+  .hero-metrics { max-width: 520px; }
+  .learning-layout,
+  .assessment-layout { grid-template-columns: 1fr; }
+  .learning-layout > aside { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .srb-ref-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .srb-target-card { column-gap: 16px; }
+  .srb-target-card .srb-match-ring { transform: scale(.9); transform-origin: top right; }
+}
+
+@media (max-width: 760px) {
+  :root { --clarity-section-gap: 16px; }
+  .content > .topbar,
+  .content > .demo-banner,
+  .content > .skills-page,
+  .content > .learning-page,
+  .content > .scn-page,
+  .content > .assessment-page,
+  .content > .institution-banner,
+  .content > .rule-banner,
+  .content > .stats-grid,
+  .content > .card,
+  .content > .app-footer { width: 100%; }
+
+  .sro3-hero,
+  .learning-hero,
+  .assessment-hero,
+  .scn-hero { padding: 20px; border-radius: 16px; }
+
+  .learning-hero { grid-template-columns: 1fr; }
+  .learning-hero-copy > p:last-child,
+  .sro3-hero-sub { display: none; }
+  .hero-target-card { order: 2; }
+  .learning-hero .search-wrap { order: 3; }
+  .learning-hero .learning-tabs { order: 4; }
+
+  .lp-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lp-stat-card { padding: 13px; }
+  .lp-stat-card .progress-track,
+  .lp-stat-sub { display: none; }
+
+  .scn-hero { flex-direction: column; align-items: stretch; }
+  .scn-hero-actions { min-width: 0; flex-direction: row; flex-wrap: wrap; }
+  .scn-hero-actions .btn { flex: 1 1 180px; }
+  .scn-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scn-next-body { flex-direction: column; align-items: stretch; }
+  .scn-next-body > .btn { width: 100%; }
+
+  .hero-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: none; }
+  .hero-metric { text-align: center; padding: 11px 8px; }
+  .hero-metric-label { font-size: 10px; line-height: 1.3; }
+
+  .panel-head { align-items: flex-start; flex-direction: column; }
+  .panel-head .lp-filter { width: 100%; }
+  .learning-layout > aside { grid-template-columns: 1fr; }
+  .srb-ref-heading-actions { justify-content: flex-start; }
+}
+
+@media (max-width: 480px) {
+  .sro3-hero-title,
+  .learning-hero-copy h1,
+  .assessment-hero h1 { font-size: 24px; }
+  .lp-stat-grid { grid-template-columns: 1fr 1fr; }
+  .lp-stat-icon { width: 32px; height: 32px; }
+  .lp-stat-label { font-size: 11px; }
+  .lp-stat-value { font-size: 17px; }
+  .scn-grid { grid-template-columns: 1fr; }
+  .scn-filterbar { overflow: hidden; }
+  .scn-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .scn-filters::-webkit-scrollbar { display: none; }
+  .assessment-layout { gap: 14px; }
+  .verify-item { align-items: flex-start; flex-wrap: wrap; }
+  .verify-item .btn { width: 100%; }
+  .srb-ref-row { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary:hover { transform: none; }
+}
+
+/* ------------------------------------------------------------------
+   Phase 2 — Card taxonomy and page hierarchy.
+   Cards keep their structural styling but carry a purpose accent via a
+   3px inline-start bar drawn from the existing token palette, so
+   Professional / Casual Pulse x Light / Dark and EN/AR/RTL stay coherent.
+     hcard-hero         headline / landing panel
+     hcard-progress     progress toward a goal (stats, verification)
+     hcard-action       THE recommended next action (dominant)
+     hcard-info         neutral information
+     hcard-opportunity  roles, jobs, listings
+     hcard-ai           mentor / AI-insight surfaces
+     hcard-warning      gaps, blockers
+     hcard-success      verified / passed states
+   Presentation only: no data, handler, or structure change.
+------------------------------------------------------------------ */
+.hcard-hero,
+.hcard-progress,
+.hcard-action,
+.hcard-info,
+.hcard-opportunity,
+.hcard-ai,
+.hcard-warning,
+.hcard-success {
+  --hc-accent: var(--sb-indigo);
+  position: relative;
+}
+
+.hcard-hero::before,
+.hcard-progress::before,
+.hcard-action::before,
+.hcard-info::before,
+.hcard-opportunity::before,
+.hcard-ai::before,
+.hcard-warning::before,
+.hcard-success::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 3px;
+  border-start-start-radius: inherit;
+  border-end-start-radius: inherit;
+  background: var(--hc-accent);
+}
+
+.hcard-hero { --hc-accent: var(--sb-indigo); }
+.hcard-progress { --hc-accent: var(--sb-indigo); }
+
+/* The one dominant card per screen: stronger presence, still not a button. */
+.hcard-action {
+  --hc-accent: var(--sb-indigo-dark);
+  box-shadow: var(--shadow);
+  outline: 1px solid var(--sb-indigo-soft-border);
+  outline-offset: -1px;
+}
+
+.hcard-info { --hc-accent: var(--sb-border); }
+.hcard-opportunity { --hc-accent: var(--sb-blue); }
+.hcard-ai { --hc-accent: var(--sb-violet); }
+.hcard-warning { --hc-accent: var(--sb-amber); }
+.hcard-success { --hc-accent: var(--sb-green); }
+
+/* Nested accent bars stay quiet (a role card inside an action card). */
+.hcard-action .hcard-opportunity,
+.hcard-action .hcard-info { --hc-accent: var(--sb-border); }
+
+/* Action hierarchy — one primary, secondary outlined, tertiary quiet.
+   .btn-secondary (already used across the jobs/tracker surface but unstyled)
+   now renders as a true outlined secondary; .btn-outline is the same intent
+   under an explicit name; .btn-text is a quiet text link for minor actions. */
+.btn-secondary,
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--sb-border);
+  color: var(--sb-midnight-ink);
+  box-shadow: none;
+}
+
+.btn-secondary:hover,
+.btn-outline:hover {
+  background: var(--sb-indigo-soft);
+  border-color: var(--sb-indigo);
+  color: var(--sb-indigo-dark);
+}
+
+.btn-text {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--sb-indigo-dark);
+  font-weight: 600;
+  padding-inline: 6px;
+}
+
+.btn-text:hover {
+  background: transparent;
+  color: var(--sb-indigo);
+  text-decoration: underline;
+}

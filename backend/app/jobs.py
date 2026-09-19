@@ -153,6 +153,94 @@ def _clear_provider_cooldown(source):
     _PROVIDER_COOLDOWN.pop(source, None)
 
 
+# ── Phase I — honest provider health vocabulary (guide lines 470-505) ──
+# ``health`` is ADDITIVE and DERIVED at report-consolidation time from the
+# legacy ``status``/``reason``/``error`` fields (which stay byte-for-byte
+# intact). The 12 fetch functions never touch it; a request's outcomes are
+# isolated and a request-id threads through every log line.
+HEALTH = {
+    "unconfigured": "unconfigured",
+    "healthy": "healthy",
+    "empty_success": "empty_success",
+    "cached": "cached",
+    "stale_fallback": "stale_fallback",
+    "rate_limited": "rate_limited",
+    "unauthorized": "unauthorized",
+    "network_unreachable": "network_unreachable",
+    "timeout": "timeout",
+    "malformed_response": "malformed_response",
+    "disabled_by_feature_flag": "disabled_by_feature_flag",
+    "unknown": "unknown",
+}
+_HEALTH_FALLBACKS = {
+    "rate_limited": HEALTH["rate_limited"],
+    "forbidden": HEALTH["unauthorized"],
+    "unauthorized": HEALTH["unauthorized"],
+    "timeout": HEALTH["timeout"],
+    "network_unreachable": HEALTH["network_unreachable"],
+    "network_error": HEALTH["network_unreachable"],
+    "connection_error": HEALTH["network_unreachable"],
+    "malformed_response": HEALTH["malformed_response"],
+}
+_MALFORMED_MARKERS = ("jsondecode", "expecting value", "expecting property name",
+                       "expecting ',' delimiter", "invalid \\u",
+                       "unexpected end of data", "not a json")
+_HEALTH_TTL_DEFAULT = 10
+def _get_health_ttl():
+    try:
+        val = int(os.environ.get("JOBS_HEALTH_TTL_SECONDS", ""))
+        if val > 0:
+            return val
+    except Exception:
+        pass
+    return _HEALTH_TTL_DEFAULT
+_health_cache = {"at": 0.0, "payload": None, "fingerprint": None}
+
+def _disabled_providers():
+    """Feature-gated providers (JOBS_DISABLED_PROVIDERS CSV); never removed."""
+    raw = os.environ.get("JOBS_DISABLED_PROVIDERS", "") or ""
+    return {name.strip() for name in raw.split(",") if name.strip()}
+def _provider_feature_flag_disabled(source):
+    return source in _disabled_providers()
+def _health_of(entry, source):
+    """Derive the canonical Phase-I health code from a legacy report entry."""
+    if _provider_feature_flag_disabled(source):
+        return HEALTH["disabled_by_feature_flag"]
+    status = entry.get("status") or ""
+    reason = entry.get("reason") or ""
+    count = entry.get("count") or 0
+    if status == "ok":
+        return HEALTH["healthy"] if count > 0 else HEALTH["empty_success"]
+    if status == "skipped":
+        if reason in ("no_credentials", "host_not_configured"):
+            return HEALTH["unconfigured"]
+        if reason in ("unsupported_country", "disabled_by_feature_flag"):
+            return HEALTH["disabled_by_feature_flag"]
+        if reason == "cooldown":
+            return _HEALTH_FALLBACKS.get((entry.get("error") or "").strip(), HEALTH["unknown"])
+        return HEALTH["unconfigured"] if not _provider_is_configured(source) else HEALTH["unknown"]
+    if status == "failed":
+        if reason in ("network_unreachable", "network_error", "connection_error"):
+            cd = _PROVIDER_COOLDOWN.get(source) or {}
+            return _HEALTH_FALLBACKS.get(cd.get("reason", ""), HEALTH["network_unreachable"])
+        if reason in _HEALTH_FALLBACKS:
+            return _HEALTH_FALLBACKS[reason]
+        if reason == "request_failed":
+            err = (entry.get("error") or "").lower()
+            if "429" in err:
+                return HEALTH["rate_limited"]
+            if any(k in err for k in ("401", "403", "unauthorized",
+                                          "not subscribed", "forbidden")):
+                return HEALTH["unauthorized"]
+            if any(k in err for k in ("timeout", "timed out")):
+                return HEALTH["timeout"]
+            if any(k in err for k in _MALFORMED_MARKERS):
+                return HEALTH["malformed_response"]
+            cd = _PROVIDER_COOLDOWN.get(source) or {}
+            return _HEALTH_FALLBACKS.get(cd.get("reason", ""), HEALTH["unknown"])
+        return HEALTH["unknown"]
+    return HEALTH["unknown"]
+
 # Secret-free diagnostic counters exposed through ``provider_status()``.
 _stats = {
     "cache_hits": 0,
@@ -194,34 +282,52 @@ def _provider_is_configured(source):
 def provider_status():
     """Secret-free job-provider observability (mirrors ``genai.provider_status``).
 
-    Reports how many providers are wired, which are configured, which actually
-    answered with listings on the last build, the most recent successful
-    provider, per-provider failure reasons (stable codes only), and cache
-    health (hits / misses / average fetch latency). API keys, hosts, and listing
-    content are never included, so no credentials can leak through this payload.
+    Adds Phase-I honest ``providers_health`` (per-provider canonical health
+    code derived from the last committed build) + ``last_build_at``. Every
+    payload is redacted of keys/URLs; the health view never probes a
+    provider and never spends quota. Existing keys keep their meaning.
     """
     with _lock:
         hits = _stats["cache_hits"]
         misses = _stats["cache_misses"]
         times = list(_stats["fetch_times"])
+        report_snap = {p: dict(_provider_status.get(p) or {}) for p in PROVIDERS}
+        last_build_at = _stats.get("last_build_at")
+    fingerprint = tuple(sorted((p, report_snap[p].get("status"),
+                                report_snap[p].get("count"),
+                                report_snap[p].get("reason"))
+                               for p in PROVIDERS))
+    now = time.time()
+    cached = _health_cache
+    if (cached["payload"] is not None
+            and now - cached["at"] < _get_health_ttl()
+            and cached["fingerprint"] == fingerprint):
+        return cached["payload"]
     avg_ms = round((sum(times) / len(times)) * 1000.0, 1) if times else 0.0
     last_success = _stats.get("last_success_provider") or ""
-    return {
+    health_map = {p: _health_of(report_snap[p], p) for p in PROVIDERS}
+    payload = {
         "providers_total": len(PROVIDERS),
-        "providers_configured": [p for p in PROVIDERS if _provider_is_configured(p)],
+        "providers_configured": [p for p in PROVIDERS
+                                 if _provider_is_configured(p)
+                                 and not _provider_feature_flag_disabled(p)],
         "providers_available": [p for p in PROVIDERS
-                                if _provider_status.get(p, {}).get("status") == "ok"],
+                                if report_snap[p].get("status") == "ok"
+                                and not _provider_feature_flag_disabled(p)],
+        "providers_health": health_map,
         "last_success_provider": last_success or None,
         "last_error_by_provider": {
-            p: entry.get("reason") for p, entry in _provider_status.items()
+            p: entry.get("reason") for p, entry in report_snap.items()
             if entry.get("status") == "failed" and entry.get("reason")
         },
-        "cache": {
-            "hits": hits,
-            "misses": misses,
-            "avg_fetch_ms": avg_ms,
-        },
+        "last_build_at": last_build_at,
+        "cache": {"hits": hits, "misses": misses, "avg_fetch_ms": avg_ms},
     }
+    with _lock:
+        _health_cache["at"] = time.time()
+        _health_cache["payload"] = payload
+        _health_cache["fingerprint"] = fingerprint
+    return payload
 
 
 def _redact(text):
@@ -230,6 +336,8 @@ def _redact(text):
     httpx error messages embed the full request URL (Adzuna puts app_id/app_key
     in the query string, Jooble in the path), so raw exceptions may carry
     secrets. Known key values are replaced with ``***`` wherever they appear.
+    URLs and email addresses are also masked so no host or address ever
+    reaches a public payload or a log.
     """
     s = str(text or "")
     for var in ("JSEARCH_API_KEY", "RAPIDAPI_KEY", "RAPIDAPI_LINKEDIN_KEY",
@@ -239,6 +347,8 @@ def _redact(text):
         v = os.environ.get(var)
         if v and len(v) >= 4 and v in s:
             s = s.replace(v, "***")
+    s = re.sub(r"https?://[^\s\"'<>)|]+", "<url>", s)
+    s = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", "<email>", s)
     return s
 
 
@@ -462,15 +572,14 @@ def _safe_key_component(text):
     return s
 
 
-def _cache_key(skills=(), role="", country="", location="", requisites=(), market="", limit=10):
-    """Deterministic, secret-free canonical cache key.
+def _cache_key_parts(skills=(), role="", country="", location="", requisites=(), market="", limit=10):
+    """Cache-key components (everything except the config tag).
 
     Every input that changes the ranked result is folded in: each skill's
     (name, level, verified) triple — levels drive ``_student_seniority`` and the
     reranker uses verified flags, so two users with the same skill names but
     different depth must NEVER share a row — plus role, normalised country/city,
-    sorted requisites, normalised market, the result limit, and the config tag.
-    User ids/emails, raw CV text, keys and secrets never appear.
+    sorted requisites, normalised market, and the result limit.
     """
     skill_parts = []
     for s in skills or ():
@@ -481,7 +590,7 @@ def _cache_key(skills=(), role="", country="", location="", requisites=(), marke
         else:
             name, level, verified = s, "", "0"
         skill_parts.append(f"{_safe_key_component(name)}:{_safe_key_component(level)}:{verified}")
-    parts = [
+    return [
         "|".join(sorted(skill_parts)),
         _safe_key_component(role),
         _normalise_country(country or ""),
@@ -489,8 +598,35 @@ def _cache_key(skills=(), role="", country="", location="", requisites=(), marke
         "|".join(sorted(_safe_key_component(n) for n in requisites or ())),
         _normalise_country(market or ""),
         str(int(limit)),
-        _CACHE_TAG,
     ]
+
+
+def _same_profile_key(existing_key, target_parts):
+    """True when an existing cache entry was built for the same profile minus
+    the result limit (components 0..5 and the tag match, limit ignored).
+
+    A fingerprint identifies one normalized listing; a row the student saw in a
+    limit-N entry is the same row at a different slice, so locators may reuse it
+    without forcing a fresh build.
+
+    NOTE: the profile pieces themselves are joined with ``|`` (the sorted
+    skill and requisite lists are list-joined before being folded into the key),
+    so a naive ``existing_key.split("|")`` misaligns components. Comparing the
+    canonical non-limit serialization as a string is exact: two profiles that
+    serialize identically ARE the same profile under this canonical form, and a
+    different profile can never be a strict prefix of this one without agreeing
+    on every ``|``-free component."""
+
+    profile_prefix = "|".join(target_parts[:-1])
+    return (existing_key.startswith(profile_prefix + "|")
+            and existing_key.endswith("|" + _CACHE_TAG))
+
+
+def _cache_key(skills=(), role="", country="", location="", requisites=(), market="", limit=10):
+    """Deterministic, secret-free canonical cache key (see ``_cache_key_parts``;
+    the full key adds the config tag so schema/ranking changes orphan old rows)."""
+    parts = _cache_key_parts(skills, role, country, location, requisites, market, limit)
+    parts.append(_CACHE_TAG)
     return "|".join(parts)
 
 # Curated offline stand-ins, aligned with the app's own seeded companies and
@@ -1288,6 +1424,206 @@ def _score_job(job, keywords, student_seniority, country, city="", role_family="
     if tier == "family" and not relevant:
         relevant = True
     return score, reason, relevant, loc_tier, loc_label, tier, title_evidence
+
+
+def job_score_components(job, keywords, student_seniority, country, city="",
+                         role_family="", minor_keywords=(), market_country="",
+                         role_driven=False, verified_skills=(), role_title=""):
+    """Full exact-total decomposition of ``_score_job`` (Phase J).
+
+    Mirror of the ``_score_job`` arithmetic that returns every intermediate as
+    labelled numbers. It reuses the SAME shared helpers (``_title_words``,
+    ``role_intent``, ``_job_seniority``, ``_location_score``, ``_ROLE_FAMILIES``,
+    ``_GENERIC_TITLE_TOKENS``), so the only duplicated text is the sequential
+    relevance/exp/score block — documented as a mirror and locked equal to the
+    live score by the Phase J parity test battery. ``final`` is the displayed
+    ``match_pct``; the sum:
+
+        relevance.final + experience.points + location.points
+        + (rounded_total - raw_total)            # int rounding
+        + (clamped_total - rounded_total)        # 0–100 clamp
+        + (seniority_capped_total - clamped_total)   # entry-level cap
+        + (location_capped_total - seniority_capped_total)  # relocation cap
+
+    equals ``final`` exactly. ``role_title`` only feeds the dominance tier;
+    the mirror keeps it for signature symmetry with ``_score_job`` (unused).
+    """
+    title = (job.get("title", "") or "")
+    haystack = (f"{title} {' '.join(job.get('tags') or [])} "
+                f"{job.get('description') or ''} "
+                f"{job.get('location', '')}").lower()
+    tlow = title.lower()
+    twords = _title_words(title)
+
+    hits = 0
+    matched = []
+    for kw in keywords:
+        if kw and kw in haystack:
+            hits += 1
+            matched.append(kw)
+    title_hits = [kw for kw in keywords if kw and kw in twords]
+    minor_hits = [kw for kw in minor_keywords if kw and kw in haystack]
+    verified = {str(s).lower() for s in (verified_skills or ())}
+    verified_hits = [kw for kw in matched if kw in verified]
+
+    base_points = min(56, hits * 14)
+    relevance = base_points
+    family = role_family
+    title_family_hit = False
+    family_cap_70 = None
+    if family:
+        syns = [
+            s.strip() for s in _ROLE_FAMILIES.get(family, [family])
+        ]
+        if role_driven:
+            role_vocab = set(keywords)
+            syns = [s for s in syns if s and s not in _GENERIC_TITLE_TOKENS and _tokens(s) & role_vocab]
+        if any(s in (" " + tlow) or s and s in tlow for s in syns):
+            title_family_hit = True
+            relevance += 24
+    if title_family_hit:
+        family_cap_70 = min(70, relevance)
+        relevance = family_cap_70
+    family_top_bump = None
+    if title_family_hit and relevance >= 40:
+        family_top_bump = min(80, relevance + 6)
+        relevance = family_top_bump
+    title_fallback_boost = None
+    if not title_family_hit and title_hits:
+        title_fallback_boost = max(relevance, min(60, 18 + len(title_hits) * 18))
+        relevance = title_fallback_boost
+    minor_bonus = min(8, len(minor_hits) * 2)
+    relevance = min(90, relevance + minor_bonus)
+    verified_bonus = min(6, len(verified_hits) * 3)
+    relevance = min(94, relevance + verified_bonus)
+    fresh = job.get("listed_days_ago")
+    fresh_bonus = 0
+    if fresh is not None and relevance > 0:
+        fresh_bonus = min(4, max(0, 4 - int(fresh)))
+        relevance = min(96, relevance + fresh_bonus)
+
+    job_sen = _job_seniority(title)
+    if job_sen > student_seniority:
+        exp_points = 0
+        exp_label = (f"Job level above yours (job {job_sen} > student "
+                     f"{student_seniority})")
+    elif job_sen == student_seniority:
+        exp_points = 20
+        exp_label = f"Job level matches yours ({job_sen})"
+    else:
+        exp_points = 12
+        exp_label = f"Job below your level (job {job_sen} < student {student_seniority})"
+
+    loc_tier, loc_points, loc_label = _location_score(job, country, city, market_country)
+    raw_total = relevance + exp_points + loc_points
+    rounded_total = int(round(raw_total))
+    clamped_total = max(0, min(100, rounded_total))
+    if student_seniority == 0 and job_sen > 1:
+        seniority_capped_total = min(clamped_total, 15)
+    else:
+        seniority_capped_total = clamped_total
+    if loc_tier == "different":
+        location_capped_total = min(seniority_capped_total, 40)
+    else:
+        location_capped_total = seniority_capped_total
+    final = location_capped_total
+
+    return {
+        "final": final,
+        "raw_total": raw_total,
+        "rounded_total": rounded_total,
+        "clamped_total": clamped_total,
+        "seniority_capped_total": seniority_capped_total,
+        "location_capped_total": location_capped_total,
+        "experience": {"points": exp_points, "label": exp_label,
+                       "job_seniority": job_sen, "student_seniority": student_seniority},
+        "location": {"tier": loc_tier, "points": loc_points, "label": loc_label},
+        "relevance": {
+            "final": relevance,
+            "base_points": base_points,
+            "family_bonus": 24 if title_family_hit else 0,
+            "family_cap_70": family_cap_70,
+            "family_top_bump": family_top_bump,
+            "title_fallback_boost": title_fallback_boost,
+            "minor_bonus": minor_bonus,
+            "verified_bonus": verified_bonus,
+            "fresh_bonus": fresh_bonus,
+            "title_family_hit": bool(title_family_hit),
+        },
+        "matches": {
+            "matched": matched,
+            "title_hits": title_hits,
+            "minor_hits": minor_hits,
+            "verified_hits": verified_hits,
+        },
+    }
+
+
+def locate_feed_job(skills, role, country, location, requisites, market,
+                    fingerprint, limit=10):
+    """Locate a specific surfaced job by fingerprint in the student's feed cache.
+
+    Read-only (never clears the cache): rebuilds the exact cache key the feed
+    uses, warms it with a sync build only when absent, and returns the located
+    normalized record — the very record the user saw, so its stored
+    ``match_pct`` is the displayed score. Returns ``None`` when the job is not
+    in the current feed (honest 404, cross-profile/market mismatch).
+    """
+    target_parts = _cache_key_parts(skills, role, country, location, requisites, market, limit)
+    key = "|".join(target_parts + [_CACHE_TAG])
+    with _lock:
+        entry = _cache.get(key) if key in _cache else None
+        if entry is None:
+            # The row the student clicked may live in a same-profile cache entry
+            # built under a different limit (feed callers vary the result slice).
+            # Locate by fingerprint across those entries first so a visible row
+            # never 404s merely because its entry split at another limit; only a
+            # genuinely absent profile triggers a (re)build.
+            for k, e in _cache.items():
+                if _same_profile_key(k, target_parts):
+                    for j in (e.get("data") or {}).get("jobs") or []:
+                        if j.get("fingerprint") == fingerprint:
+                            entry = e
+                            break
+                if entry is not None:
+                    break
+    if entry is None:
+        data = _build_result(key, skills, role, country, location, limit,
+                             role_requisites=requisites, market_country=market,
+                             request_id="")
+        with _lock:
+            entry = _cache.get(key) or {"data": data, "at": time.time()}
+    for j in (entry.get("data") or {}).get("jobs") or []:
+        if j.get("fingerprint") == fingerprint:
+            return j
+    return None
+
+
+def peek_feed_job(skills, role, country, location, requisites, market,
+                  fingerprint, limit=10):
+    """Cache-only ``locate_feed_job``: look up a fingerprint WITHOUT triggering
+    a feed build.
+
+    Never fetches and never warms the cache — used by the job tracker to
+    opportunistically refresh a saved row's liveness (``listing_status`` /
+    ``link_state`` / ``is_expired``) from an already-built feed entry. Returns
+    ``None`` when the feed for this profile/market has not been built or the
+    fingerprint is not in it, leaving the stored snapshot untouched."""
+    target_parts = _cache_key_parts(skills, role, country, location, requisites, market, limit)
+    key = "|".join(target_parts + [_CACHE_TAG])
+    with _lock:
+        entry = _cache.get(key) if key in _cache else None
+        if entry is None:
+            for k, e in _cache.items():
+                if _same_profile_key(k, target_parts):
+                    entry = e
+                    break
+    if entry is None:
+        return None
+    for j in (entry.get("data") or {}).get("jobs") or []:
+        if j.get("fingerprint") == fingerprint:
+            return {"found": True, "job": j}
+    return {"found": False, "job": None}
 
 
 def _parse_listing_date(raw):
@@ -2591,13 +2927,15 @@ def _fetch_all(limit_each, keywords=(), country="", adzuna_country="", report=No
     including the cooldown-skip branch and the executor threads — is recorded
     into THAT report so concurrent builds can never see each other's provider
     status. Without a report, outcomes update the global snapshot (standalone
-    callers / tests).
+    callers / tests). A ``request_id`` on the report threads through every
+    log line for auditability.
     """
     # Country-scoped feeds follow the relocation market (codes → names, so
     # JSearch/Jooble get readable locations like "United Kingdom" / "Egypt").
     market_name = _normalise_country(adzuna_country) if adzuna_country else ""
     exec_loc = market_name or _normalise_country(country)
-
+    rid = (report or {}).get("request_id", "") if report else ""
+    prefix = f"[{rid}] " if rid else ""
     calls = [
         ("Remotive", lambda: _fetch_remotive(max(limit_each, 40))),
         ("RemoteOK", lambda: _fetch_remoteok(max(limit_each, 40))),
@@ -2621,9 +2959,16 @@ def _fetch_all(limit_each, keywords=(), country="", adzuna_country="", report=No
                                 initializer=_set_report_in_thread, initargs=(report,)) as ex:
             futures = {}
             for name, fn in calls:
+                if _provider_feature_flag_disabled(name):
+                    logger.info("%sjob provider %s disabled by feature flag", prefix, name)
+                    _skip_status(name, "disabled_by_feature_flag")
+                    continue
                 if _is_provider_cooled_down(name):
-                    logger.debug("job provider %s skipped (cooldown active)", name)
-                    _record_status(name, "skipped", 0, reason="cooldown", error="")
+                    cd = _PROVIDER_COOLDOWN.get(name) or {}
+                    logger.info("%sjob provider %s skipped (cooldown: %s)", prefix, name,
+                                cd.get("reason") or "active")
+                    _record_status(name, "skipped", 0, reason="cooldown",
+                                    error=(cd.get("reason") or "")[:120])
                     continue
                 futures[ex.submit(fn)] = name
             for fut in futures:
@@ -2633,6 +2978,14 @@ def _fetch_all(limit_each, keywords=(), country="", adzuna_country="", report=No
                 except Exception as e:
                     # Each fetch internally catches and logs; this is defense in depth.
                     _record_status(name, "failed", reason="internal_error", error=str(e))
+            for name in PROVIDERS:
+                entry = (report if report is not None else _provider_status).get(name) or {}
+                if (entry.get("status") == "skipped" and entry.get("count") == 0
+                        and not (entry.get("reason") or entry.get("error"))):
+                    continue
+                logger.info("%sprovider %s -> %s (%d jobs, %s)", prefix, name,
+                            _health_of(entry, name), entry.get("count") or 0,
+                            entry.get("reason") or entry.get("error") or "")
         return jobs
     finally:
         if report is not None:
@@ -2697,7 +3050,8 @@ def _apply(jobs, keywords, student_seniority, country, city="", role_family="",
     return scored
 
 
-def _build_result(key, skills, role, country, location, limit, role_requisites=(), market_country=""):
+def _build_result(key, skills, role, country, location, limit, role_requisites=(),
+                  market_country="", request_id=""):
     """Build the ranked job list for a given cache key (runs in background).
 
     Provider reachability drives the honest empty-vs-offline decision:
@@ -2729,6 +3083,7 @@ def _build_result(key, skills, role, country, location, limit, role_requisites=(
     # builds for different keys can't see or corrupt each other's outcomes.
     report = {p: {"status": "skipped", "count": 0, "reason": "", "error": ""}
               for p in PROVIDERS}
+    report["request_id"] = request_id
     _t0 = time.time()
     raw = _fetch_all(limit * 3, search_terms, user_country, adzuna_country=market_country or "",
                      report=report)
@@ -2768,15 +3123,19 @@ def _build_result(key, skills, role, country, location, limit, role_requisites=(
     local = [j for j in ranked if j.get("location_tier") in ("city", "country", "country_remote", "market")]
     broader = [j for j in ranked if j.get("location_tier") in ("global_remote", "unknown")]
     other = [j for j in ranked if j.get("location_tier") == "different"]
-    selected = list(local)
-    if len(selected) < limit:
-        selected.extend(broader[:limit - len(selected)])
-    if len(selected) < limit:
-        selected.extend(other[:limit - len(selected)])
+    # ``_apply`` already sorts ``ranked`` by the dominance contract (tier →
+    # title evidence → location fit → numeric match). Select in that global
+    # order — never re-bucket by location first — so a directly-relevant
+    # title in another country is not pushed below a same-family listing that
+    # merely happens to be remote/unknown-location. Local fit still decides
+    # ordering *within* a band because location is the third sort key.
+    selected = ranked[:limit]
 
     if not selected and feed_source == "live":
         feed_source = "empty"
 
+    _rid = request_id or ""
+    _prefix = f"[{_rid}] " if _rid else ""
     data = {
         "source": feed_source,
         "status": "fresh",
@@ -2793,6 +3152,7 @@ def _build_result(key, skills, role, country, location, limit, role_requisites=(
                 "count": report[p]["count"],
                 "reason": report[p]["reason"],
                 "error": report[p]["error"],
+                "health": _health_of(report[p], p),
             }
             for p in PROVIDERS
         ],
@@ -2807,17 +3167,21 @@ def _build_result(key, skills, role, country, location, limit, role_requisites=(
         _cache.move_to_end(key)
         while len(_cache) > _get_max_entries():
             _cache.popitem(last=False)
-        _provider_status.update(report)
+        _provider_status.update({k: v for k, v in report.items() if k in PROVIDERS})
+        _stats["last_build_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         _bg_fetching.discard(key)
+    logger.info("%sjob build complete feed=%s jobs=%d", _prefix, feed_source, len(selected[:limit]))
     return data
 
 
-def _background_fetch(key, skills, role, country, location, limit, role_requisites=(), market_country=""):
+def _background_fetch(key, skills, role, country, location, limit, role_requisites=(),
+                      market_country="", request_id=""):
     """Run _build_result in a daemon thread so the HTTP request returns fast."""
     def _worker():
         try:
             _build_result(key, skills, role, country, location, limit,
-                          role_requisites=role_requisites, market_country=market_country)
+                          role_requisites=role_requisites, market_country=market_country,
+                          request_id=request_id)
         except Exception:
             with _lock:
                 _bg_fetching.discard(key)
@@ -2825,7 +3189,7 @@ def _background_fetch(key, skills, role, country, location, limit, role_requisit
     t.start()
 
 def recent_jobs(skills=(), role="", country="", location="", limit=10, _sync=False,
-                role_requisites=(), market_country=""):
+                role_requisites=(), market_country="", request_id=""):
     """Return ``{source, jobs, groups}`` ranked most → least fitting for the profile.
 
     ``skills`` is a list of ``(name, level)`` or ``(name, level, verified)``
@@ -2837,22 +3201,23 @@ def recent_jobs(skills=(), role="", country="", location="", limit=10, _sync=Fal
     ``market_country`` is an optional remote/relocation search target for feeds
     like Adzuna. ``limit`` affects the returned slice and is part of the cache
     key, so two callers with different limits can never reuse each other's rows.
+    ``request_id`` threads through the provider fetch for auditability.
 
     Status vocabulary in the response (additive ``status`` next to the existing
     ``source``):
     - ``fresh``          just built by this call;
     - ``cached``         a fresh cached row whose TTL has not elapsed;
     - ``stale_fallback`` a row past TTL, served as-is while a background
-                         refresh runs (never curated/demo jobs);
+                          refresh runs (never curated/demo jobs);
     - ``unavailable``    nothing cached for this key yet — an empty response is
-                         returned immediately and live data is fetched in a
-                         background thread so the dashboard never freezes.
+                          returned immediately and live data is fetched in a
+                          background thread so the dashboard never freezes.
 
     When ``_sync=True`` (used by tests), the fetch runs synchronously so
     monkeypatched ``_fetch_all`` results are returned directly.
     """
     key = _cache_key(skills, role, country, location, role_requisites,
-                     market_country, limit)
+                       market_country, limit)
     now = time.time()
     ttl = _get_ttl_seconds()
 
@@ -2871,14 +3236,16 @@ def recent_jobs(skills=(), role="", country="", location="", limit=10, _sync=Fal
 
     if _sync:
         return _build_result(key, skills, role, country, location, limit,
-                             role_requisites=role_requisites, market_country=market_country)
+                               role_requisites=role_requisites, market_country=market_country,
+                               request_id=request_id)
 
     if entry is not None:
         # Expired but present: serve the last honest data as stale_fallback and
         # refresh in the background (one refresh per key, deduped atomically).
         logger.debug("jobs cache stale: key=%s age=%.1fs", key, now - entry["at"])
         _maybe_background_fetch(key, skills, role, country, location, limit,
-                                role_requisites=role_requisites, market_country=market_country)
+                                role_requisites=role_requisites, market_country=market_country,
+                                request_id=request_id)
         return {**entry["data"], "status": "stale_fallback"}
 
     # Cache miss — kick off a background fetch and return an honest
@@ -2886,7 +3253,8 @@ def recent_jobs(skills=(), role="", country="", location="", limit=10, _sync=Fal
     # blocks on external HTTP calls. Curated/demo jobs are never served here.
     logger.debug("jobs cache miss: key=%s", key)
     _maybe_background_fetch(key, skills, role, country, location, limit,
-                            role_requisites=role_requisites, market_country=market_country)
+                            role_requisites=role_requisites, market_country=market_country,
+                            request_id=request_id)
     return {
         "source": "unavailable",
         "status": "unavailable",
@@ -2897,12 +3265,13 @@ def recent_jobs(skills=(), role="", country="", location="", limit=10, _sync=Fal
 
 
 def _maybe_background_fetch(key, skills, role, country, location, limit,
-                            role_requisites=(), market_country=""):
+                            role_requisites=(), market_country="", request_id=""):
     """Kick exactly one background fetch per key (atomic check+add under lock)."""
     with _lock:
         if key in _bg_fetching:
             return False
         _bg_fetching.add(key)
     _background_fetch(key, skills, role, country, location, limit,
-                      role_requisites=role_requisites, market_country=market_country)
+                      role_requisites=role_requisites, market_country=market_country,
+                      request_id=request_id)
     return True

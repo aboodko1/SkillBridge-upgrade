@@ -6,6 +6,7 @@ in-memory databases for unit tests.
 """
 import datetime as dt
 import os
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -612,12 +613,488 @@ def _migration_0005_company_role_mapping(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_role_mapping_events_role ON role_mapping_events(role_id)")
 
 
+def _migration_0006_saved_jobs_tracker(conn):
+    """Migration 0006: saved jobs and the private application tracker (Phase K).
+
+    Additive and student-private: a per-student tracker row snapshots the
+    normalized live-feed record the student actually saw (keyed by the feed's
+    own ``fingerprint``) plus an append-only stage-history audit table. No
+    existing column, table, row, or route changes; no backfill (nothing was
+    ever tracked before, so an empty tracker is the honest initial state).
+    Stage vocabulary is locked to the ten guide stages by a CHECK constraint;
+    the tracker is lean by design — notes stay in the row, and every stage
+    change copies the note/intent into the history row.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS student_job_tracker (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            fingerprint TEXT NOT NULL,
+            title TEXT NOT NULL,
+            company TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL DEFAULT '',
+            apply_url TEXT NOT NULL DEFAULT '',
+            location TEXT NOT NULL DEFAULT '',
+            country TEXT NOT NULL DEFAULT '',
+            provider TEXT,
+            source TEXT,
+            match_pct REAL,
+            work_type TEXT,
+            seniority TEXT,
+            listing_status TEXT,
+            link_state TEXT,
+            is_expired INTEGER NOT NULL DEFAULT 0,
+            stage TEXT NOT NULL DEFAULT 'saved'
+                CHECK (stage IN ('saved', 'preparing', 'applied', 'screening',
+                                 'interview', 'offer', 'hired', 'rejected',
+                                 'withdrawn', 'archived_or_expired')),
+            note TEXT NOT NULL DEFAULT '',
+            interview_date TEXT,
+            application_deadline TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (student_id, fingerprint)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_tracker_student "
+                 "ON student_job_tracker(student_id, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_tracker_fingerprint "
+                 "ON student_job_tracker(fingerprint)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tracker_stage_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tracker_id INTEGER NOT NULL REFERENCES student_job_tracker(id) ON DELETE CASCADE,
+            stage TEXT NOT NULL,
+            changed_from TEXT,
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tracker_history_tracker "
+                 "ON tracker_stage_history(tracker_id)")
+
+
+def _migration_0007_role_view_events(conn):
+    """Migration 0007: per-student recently-viewed roles (Phase L).
+
+    Additive and student-private: one row per (student, role) keeps the most
+    recent view; a re-view bumps ``viewed_at`` (moves the role to the top of
+    the student's recents) and never duplicates. The 30-row cap lives in the
+    models layer (data policy, not schema). A role deletion cascades away its
+    view events, so recents can never point at a missing role. No existing
+    column, table, row, or route changes; nothing is backfilled (an empty
+    recents list is the honest initial state).
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS role_view_events (
+            student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+            viewed_at TEXT NOT NULL,
+            PRIMARY KEY (student_id, role_id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_role_view_events_student "
+                 "ON role_view_events(student_id, viewed_at DESC)")
+
+
+def _migration_0009_copilot_config(conn):
+    """Phase O: the student's Build-Your-Copilot configuration (the one copilot
+    that carries every capability in a single conversation).
+
+    Additive and student-private: a single row per student freezes the chosen
+    copilot at creation time (choice + voice agent + the personality block that
+    composes the dynamic system prompt), so later in-app edits never need a
+    schema change and a snapshot stays self-contained. Personality and
+    capability are configuration; the voice is a reference to one of the
+    existing shared voice agents (nova/axel/sage/vex). No existing column,
+    table, row, or route changes; nothing is backfilled (no config exists until
+    a student builds a copilot).
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS copilot_config (
+            student_id INTEGER PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+            choice TEXT NOT NULL
+                CHECK (choice IN ('navigator', 'strategist', 'confidant')),
+            voice_agent_id TEXT NOT NULL
+                CHECK (voice_agent_id IN ('nova', 'axel', 'sage', 'vex')),
+            name TEXT NOT NULL,
+            title TEXT NOT NULL,
+            role TEXT NOT NULL,
+            specialty TEXT NOT NULL,
+            origin TEXT NOT NULL,
+            traits_json TEXT NOT NULL DEFAULT '[]',
+            behavior TEXT NOT NULL,
+            style TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+
+MAX_ROLE_VIEW_EVENTS = 30
+
+
+def _migration_0008_job_link_reports(conn):
+    """Phase N: student reports are an append-only audit, never a blocklist."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS job_link_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            fingerprint TEXT NOT NULL,
+            url TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            provider TEXT NOT NULL DEFAULT '',
+            reported_at TEXT NOT NULL,
+            UNIQUE(student_id, fingerprint)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_link_reports_student "
+                 "ON job_link_reports(student_id, reported_at DESC)")
+
+
+def _migration_0010_copilot_onboarding(conn):
+    """Phase "Copilot onboarding": when/where the first-run copilot quiz was
+    resolved, kept DELIBERATELY on its own row.
+
+    The row lives in a SEPARATE table (not on copilot_config) so that the
+    onboarding question survives ``DELETE copilot``: "only ask once" is a
+    property of the student, not of the copilot build. ``state`` records the
+    outcome (not_started / completed / skipped), ``source`` records how the
+    answer was reached (quiz / skip / manual_change via the settings picker),
+    ``quiz_answers_json`` stores the raw 3-answer set that produced the result
+    (empty for manual_change / skip), and ``answered_at`` is set when the row
+    leaves not_started. The row is created lazily on first read (a student with
+    no row is simply not_started); nothing is backfilled and nothing existing
+    is touched.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS copilot_onboarding (
+            student_id INTEGER PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+            state TEXT NOT NULL DEFAULT 'not_started'
+                CHECK (state IN ('not_started', 'completed', 'skipped')),
+            source TEXT NOT NULL DEFAULT 'manual_change'
+                CHECK (source IN ('quiz', 'skip', 'manual_change')),
+            quiz_answers_json TEXT NOT NULL DEFAULT '[]',
+            answered_at TEXT
+        )
+    """)
+
+
+MAX_ROLE_VIEW_EVENTS = 30
+
+
+def _migration_0011_mentor_keys(conn):
+    """Phase "Mentor Experience": unify onboarding/recommendation on the four
+    real mentors (nova / axel / sage / vex) instead of the three archetype
+    names (navigator / strategist / confidant).
+
+    Only ``copilot_config``'s CHECK constraint knows the old keys, so only that
+    table is rebuilt (rename-create-copy-drop pattern keeps FK integrity under
+    ``PRAGMA foreign_keys = ON``). Existing rows are re-keyed deterministically
+    (navigator→nova, strategist→axel, confidant→sage) and the frozen display
+    ``name`` is refreshed to the mentor's own name so the old archetype names
+    never surface again; the personality/capability snapshot keeps its Phase O
+    content (personality behavior changes are out of Phase 1 scope).
+
+    ``copilot_onboarding`` needs NO schema change: its quiz answers are
+    free-text JSON (no CHECK on mentor keys), so the "ask once" property
+    survives untouched. Purely additive-rebuild; nothing is backfilled, no
+    existing table or column changes meaning.
+    """
+    old_to_new = {"navigator": "nova", "strategist": "axel", "confidant": "sage"}
+    display = {"nova": "Nova", "axel": "Axel", "sage": "Sage", "vex": "Vex"}
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(copilot_config)")]
+    if not cols:
+        return
+    conn.execute("""
+        CREATE TABLE copilot_config__m11 (
+            student_id INTEGER PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+            choice TEXT NOT NULL
+                CHECK (choice IN ('nova', 'axel', 'sage', 'vex')),
+            voice_agent_id TEXT NOT NULL
+                CHECK (voice_agent_id IN ('nova', 'axel', 'sage', 'vex')),
+            name TEXT NOT NULL,
+            title TEXT NOT NULL,
+            role TEXT NOT NULL,
+            specialty TEXT NOT NULL,
+            origin TEXT NOT NULL,
+            traits_json TEXT NOT NULL DEFAULT '[]',
+            behavior TEXT NOT NULL,
+            style TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    idx = {name: i for i, name in enumerate(cols)}
+    placeholders = ", ".join("?" for _ in cols)
+    for row in conn.execute("SELECT * FROM copilot_config").fetchall():
+        values = list(row)
+        old_choice = values[idx["choice"]]
+        new_key = old_to_new.get(old_choice, "nova")
+        values[idx["choice"]] = new_key
+        values[idx["voice_agent_id"]] = new_key
+        values[idx["name"]] = display.get(new_key, "Nova")
+        conn.execute(
+            f"INSERT INTO copilot_config__m11 ({', '.join(cols)}) "
+            f"VALUES ({placeholders})",
+            values,
+        )
+    conn.execute("DROP TABLE copilot_config")
+    conn.execute("ALTER TABLE copilot_config__m11 RENAME TO copilot_config")
+
+
+def _migration_0012_tutor_memory(conn):
+    """Phase 2 — persona-specific conversation memory.
+
+    Adds ONE per-student/per-mentor row holding the compacted digest of older
+    conversation that has already dropped out of the bounded recent window in
+    ``tutor_messages``. Conversation storage itself stays in ``tutor_messages``
+    (already keyed by ``(student_id, tutor_id)`` and left untouched); this table
+    only records the rolling summary + the id watermark of the last folded
+    message, so compaction is idempotent. Purely additive: existing tutor
+    conversations are never rewritten, nothing is backfilled (each thread's
+    memory builds naturally as new turns fall out of the window), and no column
+    on an existing table changes meaning.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tutor_conversation_memory (
+            student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            tutor_id TEXT NOT NULL CHECK(tutor_id IN ('nova','axel','sage','vex')),
+            summary TEXT NOT NULL DEFAULT '',
+            last_compacted_id INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (student_id, tutor_id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tutor_memory_student "
+                 "ON tutor_conversation_memory(student_id)")
+
+
+def _phase4a_conversation_title(content: str | None) -> str:
+    text = re.sub(r"\s+", " ", (content or "").strip())
+    if not text:
+        return "New conversation"
+    if len(text) <= 56:
+        return text
+    clipped = text[:56].rsplit(" ", 1)[0].strip()
+    return f"{clipped or text[:56].strip()}..."
+
+
+def _phase4a_default_tutor(conn, student_id: int) -> str:
+    row = conn.execute(
+        """
+        SELECT tutor_id
+        FROM tutor_preferences
+        WHERE student_id = ?
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (student_id,),
+    ).fetchone()
+    return (row["tutor_id"] if row and row["tutor_id"] else "nova")
+
+
+def _migration_0013_tutor_conversations(conn):
+    """Phase 4A - real tutor conversation threads.
+
+    Adds first-class conversation records while preserving existing Phase 2
+    tutor-scoped storage. Legacy rows are grouped into one restored conversation
+    per student/mentor, and old compacted memory is copied into the new
+    conversation-scoped memory table.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tutor_conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            tutor_id TEXT NOT NULL CHECK(tutor_id IN ('nova','axel','sage','vex')),
+            title TEXT NOT NULL DEFAULT 'New conversation',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+
+    tutor_message_columns = [r["name"] for r in conn.execute("PRAGMA table_info(tutor_messages)").fetchall()]
+    if "conversation_id" not in tutor_message_columns:
+        conn.execute(
+            "ALTER TABLE tutor_messages "
+            "ADD COLUMN conversation_id INTEGER REFERENCES tutor_conversations(id) ON DELETE SET NULL"
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tutor_conversations_student_updated "
+        "ON tutor_conversations(student_id, updated_at DESC, id DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tutor_conversations_student_tutor "
+        "ON tutor_conversations(student_id, tutor_id, updated_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tutor_messages_conversation "
+        "ON tutor_messages(conversation_id, id)"
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tutor_conversation_memory_threads (
+            conversation_id INTEGER PRIMARY KEY REFERENCES tutor_conversations(id) ON DELETE CASCADE,
+            student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            tutor_id TEXT NOT NULL CHECK(tutor_id IN ('nova','axel','sage','vex')),
+            summary TEXT NOT NULL DEFAULT '',
+            last_compacted_id INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tutor_memory_threads_student_tutor "
+        "ON tutor_conversation_memory_threads(student_id, tutor_id)"
+    )
+
+    legacy_rows = conn.execute(
+        """
+        SELECT id, student_id, tutor_id, role, content, created_at
+        FROM tutor_messages
+        WHERE conversation_id IS NULL
+        ORDER BY student_id, COALESCE(tutor_id, ''), id
+        """
+    ).fetchall()
+    grouped: dict[tuple[int, str], list[sqlite3.Row]] = {}
+    for row in legacy_rows:
+        tutor_id = row["tutor_id"] or _phase4a_default_tutor(conn, row["student_id"])
+        grouped.setdefault((row["student_id"], tutor_id), []).append(row)
+
+    for (student_id, tutor_id), messages in grouped.items():
+        first_user = next((m for m in messages if m["role"] == "user"), messages[0])
+        title = _phase4a_conversation_title(first_user["content"])
+        created_at = messages[0]["created_at"] or dt.datetime.utcnow().isoformat()
+        updated_at = messages[-1]["created_at"] or created_at
+        cursor = conn.execute(
+            """
+            INSERT INTO tutor_conversations (student_id, tutor_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (student_id, tutor_id, title, created_at, updated_at),
+        )
+        conversation_id = cursor.lastrowid
+        message_ids = [m["id"] for m in messages]
+        placeholders = ",".join("?" for _ in message_ids)
+        conn.execute(
+            f"""
+            UPDATE tutor_messages
+            SET tutor_id = COALESCE(tutor_id, ?), conversation_id = ?
+            WHERE id IN ({placeholders})
+            """,
+            [tutor_id, conversation_id, *message_ids],
+        )
+
+    memory_rows = conn.execute(
+        """
+        SELECT student_id, tutor_id, summary, last_compacted_id, updated_at
+        FROM tutor_conversation_memory
+        """
+    ).fetchall()
+    for row in memory_rows:
+        conv = conn.execute(
+            """
+            SELECT id
+            FROM tutor_conversations
+            WHERE student_id = ? AND tutor_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (row["student_id"], row["tutor_id"]),
+        ).fetchone()
+        if conv:
+            conversation_id = conv["id"]
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO tutor_conversations (student_id, tutor_id, title, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    row["student_id"],
+                    row["tutor_id"],
+                    "Restored conversation",
+                    row["updated_at"],
+                    row["updated_at"],
+                ),
+            )
+            conversation_id = cursor.lastrowid
+        conn.execute(
+            """
+            INSERT INTO tutor_conversation_memory_threads (
+                conversation_id,
+                student_id,
+                tutor_id,
+                summary,
+                last_compacted_id,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                summary = excluded.summary,
+                last_compacted_id = excluded.last_compacted_id,
+                updated_at = excluded.updated_at
+            """,
+            (
+                conversation_id,
+                row["student_id"],
+                row["tutor_id"],
+                row["summary"],
+                row["last_compacted_id"],
+                row["updated_at"],
+            ),
+        )
+
+
+def _migration_0014_conversation_live_meta(conn):
+    """Phase 4D - conversation session metadata.
+
+    Phase 5 (4D) reuses the conversation threads for BOTH Live modes
+    (Conversation and Interview) and must persist clear session metadata on the
+    thread so History can show what kind of session happened. Adds a defaulted
+    ``mode`` column (chat/practice/discuss/interview — last explicit mode of the
+    thread) and a ``language`` column (the resolved reply language of the most
+    recent turn). Columns are additive; existing rows keep their defaults. The
+    guard is defensive: on a DB where migration 0013 has not created the table
+    yet (partial migration subsets in legacy-upgrade tests), this is a no-op.
+    """
+    table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='tutor_conversations'"
+    ).fetchone()
+    if not table:
+        return
+    conv_columns = [r["name"] for r in conn.execute("PRAGMA table_info(tutor_conversations)").fetchall()]
+    if "mode" not in conv_columns:
+        conn.execute(
+            "ALTER TABLE tutor_conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat' "
+            "CHECK(mode IN ('chat','practice','discuss','interview'))"
+        )
+    if "language" not in conv_columns:
+        conn.execute(
+            "ALTER TABLE tutor_conversations ADD COLUMN language TEXT"
+        )
+
+
 MIGRATIONS = [
     {"id": "0001_baseline_implied_schema", "apply": _migration_0001_baseline},
     {"id": "0002_auth_sessions", "apply": _migration_0002_auth_sessions},
     {"id": "0003_canonical_roles", "apply": _migration_0003_canonical_roles},
     {"id": "0004_esco_import", "apply": _migration_0004_esco_import},
     {"id": "0005_company_role_mapping", "apply": _migration_0005_company_role_mapping},
+    {"id": "0006_saved_jobs_tracker", "apply": _migration_0006_saved_jobs_tracker},
+    {"id": "0007_role_view_events", "apply": _migration_0007_role_view_events},
+    {"id": "0008_job_link_reports", "apply": _migration_0008_job_link_reports},
+    {"id": "0009_copilot_config", "apply": _migration_0009_copilot_config},
+    {"id": "0010_copilot_onboarding", "apply": _migration_0010_copilot_onboarding},
+    {"id": "0011_mentor_keys", "apply": _migration_0011_mentor_keys},
+    {"id": "0012_tutor_memory", "apply": _migration_0012_tutor_memory},
+    {"id": "0013_tutor_conversations", "apply": _migration_0013_tutor_conversations},
+    {"id": "0014_conversation_live_meta", "apply": _migration_0014_conversation_live_meta},
 ]
 
 

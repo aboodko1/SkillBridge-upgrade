@@ -35,13 +35,19 @@ def _load_env():
     loader here those keys were never read, so every GenAI feature silently ran
     its deterministic fallback.
 
+    A file named `env` (no leading dot) is accepted as a fallback for setups
+    that check in secrets under that spelling; `.env` still wins when both exist.
+
     Never loads under pytest: the suite must stay byte-for-byte deterministic
     and must never send real provider credentials, even when a developer has a
     populated .env on disk.
     """
     if sys.modules.get("pytest") is not None:
         return
-    env_file = Path(__file__).resolve().parents[2] / ".env"
+    root = Path(__file__).resolve().parents[2]
+    env_file = root / ".env"
+    if not env_file.is_file():
+        env_file = root / "env"
     if not env_file.is_file():
         return
     for line in env_file.read_text().splitlines():
@@ -64,7 +70,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import models, matching, genai, integrity, seed, auth as auth_mod, mailer, activity, jobs, career_roadmap, diagnostics, path_builder, lessons, coverage, skill_blueprint, tts, copilot, escoe, practice, recommendations, scenarios, esco_import, role_mapping
+from . import models, matching, metrics, genai, integrity, seed, auth as auth_mod, mailer, activity, jobs, career_roadmap, diagnostics, path_builder, lessons, coverage, skill_blueprint, knowledge_base, learning_orchestrator, tts, copilot, escoe, practice, recommendations, scenarios, esco_import, role_mapping, match_explain, tutor_memory
 from .resources import _CHECK_CACHE, annotate_resources
 from .database import init_db, get_cursor, applied_migrations
 
@@ -536,6 +542,42 @@ def api_demo_mode():
     }
 
 
+@app.get("/api/debug/tutor-system")
+def api_debug_tutor_system(message: str = "", tutor_id: str = "nova",
+                           mode: str = "chat", language: str = "", spoken: bool = False):
+    """Return the EXACT system prompt that would be sent to the provider for a
+    tutor turn, so the prompt actually seen by the model can be verified.
+
+    GATED: only reachable when the server was started with
+    ``SKILLBRIDGE_ENABLE_DEBUG=1`` (never enabled by default). The message is
+    used to route the intent/confusion/length directives exactly like a real
+    tutor turn. No provider call is made.
+    """
+    if os.environ.get("SKILLBRIDGE_ENABLE_DEBUG", "0") != "1":
+        return {"ok": False, "detail": "debug endpoint disabled"}
+    from . import copilot
+    lang = copilot.resolve_language(language or "auto", message or "how are you")
+    resolved = lang if message else language or "auto"
+    persona = genai.TUTOR_PERSONAS.get((tutor_id or "nova").lower())
+    intent = genai._classify_tutor_turn(message, mode=mode)
+    system = genai._tutor_system(
+        lang, intent, mode or "chat", tutor_id or "nova", message, persona, None,
+        spoken=spoken,
+    )
+    return {
+        "ok": True,
+        "message": message,
+        "tutor_id": tutor_id,
+        "resolved_language": resolved,
+        "intent": intent,
+        "spoken": spoken,
+        "system": system,
+        "language_lock": genai._language_lock(lang),
+        "mirror_rule": genai._MIRROR_LANGUAGE_RULE,
+        "meta_phrases": list(genai._META_COMMENTARY_PHRASES),
+    }
+
+
 @app.get("/api/system/db-status")
 def api_db_status(limit: int = 200):
     """Read-only database health: engine, honest applied-migration ledger, and a
@@ -661,6 +703,19 @@ def api_create_skill(request: Request, body: dict):
     return models.create_skill(name, category)
 
 
+# ------------------------------------------------------------------ metrics
+
+@app.get("/api/metrics/definitions")
+def api_metric_definitions(request: Request):
+    """The canonical score registry: one key/label/formula per displayed metric.
+
+    The frontend reads names and explainers from here (and from each analysis
+    payload) so a metric is never relabelled or recomputed inconsistently.
+    """
+    _current_user(request)
+    return {"metrics": metrics.definitions(), "canonical": list(metrics.CANONICAL_METRICS)}
+
+
 # ------------------------------------------------------------------ companies
 
 @app.get("/api/companies")
@@ -699,7 +754,8 @@ def api_list_roles(request: Request, search: str = ""):
     return {"roles": roles, "catalog": catalog,
             "location": user_location,
             "is_company": user["role"] == "Company",
-            "company_id": (models.get_company_by_user(user["id"]) or {}).get("id") if user["role"] == "Company" else None}
+            "company_id": (models.get_company_by_user(user["id"]) or {}).get("id") if user["role"] == "Company" else None,
+            "role_data_version": models.roles_catalog_version()}
 
 
 @app.get("/api/roles/catalog")
@@ -1069,6 +1125,55 @@ def upload_cv(student_id: int, file: UploadFile = File(...), request: Request = 
             "warning": warning, "skills_kept": not extracted}
 
 
+# ------------------------------------------------------------------ artifacts
+
+@app.post("/api/students/{student_id}/artifacts")
+def api_student_artifacts(student_id: int, request: Request, body: dict):
+    """Generate a career artifact (resume / cover letter / 6-month career plan)
+    from TRUSTED SkillBridge state only: the student's verified skills + target
+    role + identity. The job is advisory output — it can never create, override,
+    or imply verified skills. Runs on the career-artifact model (ARTIFACT_MODEL,
+    NVIDIA NIM, same key as the interactive model); when that model is unset,
+    down, or slow, a DETERMINISTIC draft built from the same trusted facts is
+    returned instead — generation never fails and never invents claims."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    kind = str(body.get("kind") or "").strip().lower()
+    if kind not in genai.ARTIFACT_KINDS:
+        raise HTTPException(status_code=400, detail=(
+            f"Unknown artifact kind (allowed: {', '.join(genai.ARTIFACT_KINDS)})"))
+    language = str(body.get("language") or "en").strip().lower()
+    if language not in ("en", "ar"):
+        raise HTTPException(status_code=400,
+                            detail="Unknown artifact language (allowed: en, ar)")
+    student = models.get_student(student_id)
+    role = student.get("target_role") or {}
+    if isinstance(role, dict):
+        target_role = str(role.get("title") or role.get("name") or "").strip()
+    else:
+        target_role = str(role or "").strip()
+    verified = [v for v in (student.get("verified_skills") or []) if isinstance(v, dict)]
+    self_reported = [s for s in (student.get("self_reported_skills") or []) if isinstance(s, dict)]
+    name = str(user.get("display_name") or user.get("name") or "").strip()
+    text, provider = genai.generate_career_artifact(
+        kind,
+        display_name=name,
+        target_role=target_role,
+        verified_skills=verified,
+        self_reported_skills=self_reported,
+        university=str(student.get("university") or "").strip(),
+        education_level=str(student.get("education_level") or "").strip(),
+        language=language,
+    )
+    return {
+        "kind": kind,
+        "language": language,
+        "artifact": text,
+        "genai_provider": provider,
+    }
+
+
 # ------------------------------------------------------------------ matching
 
 @app.get("/api/students/{student_id}/analysis")
@@ -1222,40 +1327,102 @@ def api_get_career_roadmap(student_id: int, request: Request):
 
 # ------------------------------------------------------------------ AI tutor
 
-@app.get("/api/students/{student_id}/tutor")
-def api_tutor_history(student_id: int, request: Request, skill_id: int = None, tutor_id: str = None):
-    """Conversation history for a student, scoped to one tutor conversation.
+def _conversation_id_from(body: dict | None):
+    if not body or body.get("conversation_id") in (None, ""):
+        return None
+    try:
+        conversation_id = int(body.get("conversation_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="conversation_id must be an integer")
+    if conversation_id <= 0:
+        raise HTTPException(status_code=400, detail="conversation_id must be positive")
+    return conversation_id
 
-    Supply ``tutor_id`` (nova/axel/sage/vex) to read that tutor's own thread.
+
+def _validate_tutor_id(raw, *, field="tutor"):
+    if raw is None:
+        return None
+    tutor_id = str(raw).strip().lower()
+    if tutor_id not in copilot.ALLOWED_TUTOR_IDS:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown {field} (allowed: nova, axel, sage, vex)")
+    return tutor_id
+
+
+@app.get("/api/students/{student_id}/tutor")
+def api_tutor_history(student_id: int, request: Request, skill_id: int = None,
+                      tutor_id: str = None, conversation_id: int = None):
+    """Conversation history for a student.
+
+    Phase 4A callers should pass ``conversation_id``. The older tutor-scoped
+    path remains available for compatibility.
     """
     user = _current_user(request)
     _require_roles(user, "Student")
     _own_student(user, student_id)
-    if tutor_id is not None and tutor_id not in copilot.ALLOWED_TUTOR_IDS:
-        raise HTTPException(status_code=400,
-                            detail="Unknown tutor (allowed: nova, axel, sage, vex)")
-    return models.list_tutor_messages(student_id, tutor_id=tutor_id, skill_id=skill_id)
+    tutor_id = _validate_tutor_id(tutor_id, field="tutor") if tutor_id is not None else None
+    if conversation_id is not None:
+        conversation = models.get_tutor_conversation(student_id, conversation_id)
+        if not conversation or (tutor_id and conversation["tutor_id"] != tutor_id):
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        tutor_id = conversation["tutor_id"]
+    return models.list_tutor_messages(
+        student_id,
+        tutor_id=tutor_id,
+        skill_id=skill_id,
+        conversation_id=conversation_id,
+    )
+
+
+@app.get("/api/students/{student_id}/tutor/conversations")
+def api_tutor_conversations(student_id: int, request: Request, include_empty: bool = False):
+    """Conversation history list for the chat sidebar/history drawer."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    return {"conversations": models.list_tutor_conversations(student_id, include_empty=include_empty)}
+
+
+@app.post("/api/students/{student_id}/tutor/conversations")
+def api_create_tutor_conversation(student_id: int, request: Request, body: dict = None):
+    """Create an empty conversation without clearing any existing history."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    tutor_id = _validate_tutor_id((body or {}).get("tutor_id"), field="tutor")
+    copilot_config = models.get_copilot_config(student_id)
+    tutor_id = tutor_id or (
+        copilot_config["voice_agent_id"] if copilot_config
+        else models.get_tutor_preference(student_id) or "nova"
+    )
+    conversation = models.create_tutor_conversation(student_id, tutor_id)
+    return {"conversation": conversation}
 
 
 @app.delete("/api/students/{student_id}/tutor")
 def api_tutor_new_chat(student_id: int, request: Request, body: dict = None):
-    """Start a fresh conversation: clears ONLY the selected tutor's chat.
+    """Clear messages from the selected conversation only.
 
-    Other tutors' conversations, the tutor preference, mode and language are all
-    untouched. When no ``tutor_id`` is given, the current preferred tutor is used.
+    Older clients may omit ``conversation_id`` and still clear the selected
+    tutor's legacy thread. Tutor preference, mode, language and trusted
+    SkillBridge state are untouched.
     """
     user = _current_user(request)
     _require_roles(user, "Student")
     _own_student(user, student_id)
-    tutor_id = None
-    if body and body.get("tutor_id") is not None:
-        tutor_id = str(body.get("tutor_id")).strip().lower()
-        if tutor_id not in copilot.ALLOWED_TUTOR_IDS:
-            raise HTTPException(status_code=400,
-                                detail="Unknown tutor (allowed: nova, axel, sage, vex)")
+    tutor_id = _validate_tutor_id((body or {}).get("tutor_id"), field="tutor")
+    conversation_id = _conversation_id_from(body)
+    if conversation_id is not None:
+        conversation = models.get_tutor_conversation(student_id, conversation_id)
+        if not conversation or (tutor_id and conversation["tutor_id"] != tutor_id):
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        tutor_id = conversation["tutor_id"]
     tutor_id = tutor_id or models.get_tutor_preference(student_id) or "nova"
-    models.clear_tutor_messages(student_id, tutor_id)
-    return {"cleared": True, "tutor_id": tutor_id}
+    cleared = models.clear_tutor_messages(student_id, tutor_id, conversation_id=conversation_id)
+    if not cleared:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    tutor_memory.clear_memory(student_id, tutor_id, conversation_id=conversation_id)
+    return {"cleared": True, "tutor_id": tutor_id, "conversation_id": conversation_id}
 
 
 @app.post("/api/students/{student_id}/tutor")
@@ -1286,13 +1453,33 @@ def api_tutor_chat(student_id: int, request: Request, body: dict):
     )
     skill_name = skill["name"] if skill else None
     role = student.get("target_role") if student else None
-    body_tutor = body.get("tutor_id")
-    if body_tutor is not None:
-        body_tutor = str(body_tutor).strip().lower()
-        if body_tutor not in copilot.ALLOWED_TUTOR_IDS:
-            raise HTTPException(status_code=400,
-                                detail="Unknown tutor persona (allowed: nova, axel, sage, vex)")
+    body_tutor = _validate_tutor_id(body.get("tutor_id"), field="tutor persona")
+    conversation_id = _conversation_id_from(body)
+    conversation = None
+    if conversation_id is not None:
+        conversation = models.get_tutor_conversation(student_id, conversation_id)
+        if not conversation or (body_tutor and conversation["tutor_id"] != body_tutor):
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        body_tutor = conversation["tutor_id"]
+    # A built copilot (Build-Your-Copilot) pins the voice agent that speaks it and
+    # carries the per-user personality/capability config. The personality composes
+    # the system prompt; the voice stays a shared agent reference.
+    copilot_config = models.get_copilot_config(student_id)
+    personality = copilot.personality_for_config(copilot_config)
     tutor_id = body_tutor or models.get_tutor_preference(student_id) or "nova"
+    if copilot_config and conversation_id is None:
+        tutor_id = copilot_config["voice_agent_id"]
+    elif copilot_config and copilot_config["voice_agent_id"] != tutor_id:
+        personality = None
+    conversation = conversation or models.ensure_tutor_conversation(
+        student_id,
+        tutor_id,
+        conversation_id=conversation_id,
+        title_seed=question,
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    conversation_id = conversation["id"]
     raw_mode = body.get("mode")
     if raw_mode is not None:
         mode = copilot.validate_mode(raw_mode)
@@ -1319,8 +1506,35 @@ def api_tutor_chat(student_id: int, request: Request, body: dict):
         body_lang or models.get_tutor_language(student_id) or "auto",
         question,
     )
+    # Phase 4D metadata: the thread remembers the last explicit Live/chat mode
+    # and resolved language so History can surface session type per conversation.
+    models.set_tutor_conversation_meta(student_id, conversation_id, mode=mode, language=language)
     ctx_text = f"{ctx['label']} context:\n{ctx['context']}\nLanguage: {copilot.language_label(language)}"
-    models.add_tutor_message(student_id, tutor_id, skill_id, "user", question)
+    # Bounded memory for THIS mentor conversation, built from the pre-turn
+    # history so the inbound message is never double-shown.
+    pre_turn = models.list_tutor_messages(
+        student_id,
+        tutor_id=tutor_id,
+        conversation_id=conversation_id,
+    )
+    memory_block = tutor_memory.memory_block_for(
+        student_id,
+        tutor_id,
+        messages=pre_turn,
+        conversation_id=conversation_id,
+    )
+    # Fresh-thread gating (no prior messages): the student is talking to this
+    # mentor for the first time in this conversation, so the dashboard learning
+    # snapshot, current-skill and target-role labels must NOT enter the prompt —
+    # that is how an empty first turn turns into a fabricated "earlier in our
+    # session we were looking at X". Only persona, language, global rules and
+    # the user question reach the provider on a fresh thread.
+    if not pre_turn:
+        ctx_text = ""
+        skill_name = None
+        role = None
+    models.add_tutor_message(student_id, tutor_id, skill_id, "user", question,
+                             conversation_id=conversation_id)
     if mode == "interview":
         reply = genai.interview_reply(
             question,
@@ -1340,9 +1554,22 @@ def api_tutor_chat(student_id: int, request: Request, body: dict):
             tutor_id=tutor_id,
             mode=mode,
             language=language,
+            personality=personality,
+            conversation_memory=memory_block,
+            spoken=bool(body.get("spoken")),
         )
-    msg = models.add_tutor_message(student_id, tutor_id, skill_id, "assistant", reply)
-    return {**msg, "reply": reply, "tutor_id": tutor_id, "mode": mode, "language": language}
+    msg = models.add_tutor_message(student_id, tutor_id, skill_id, "assistant", reply,
+                                   conversation_id=conversation_id)
+    tutor_memory.after_turn(student_id, tutor_id, conversation_id=conversation_id)
+    return {
+        **msg,
+        "reply": reply,
+        "tutor_id": tutor_id,
+        "mode": mode,
+        "language": language,
+        "conversation_id": conversation_id,
+        "conversation": models.get_tutor_conversation(student_id, conversation_id),
+    }
 
 
 @app.get("/api/students/{student_id}/tutor/preference")
@@ -1351,10 +1578,20 @@ def api_get_tutor_preference(student_id: int, request: Request):
     user = _current_user(request)
     _require_roles(user, "Student")
     _own_student(user, student_id)
-    tutor_id = models.get_tutor_preference(student_id) or "nova"
+    copilot_config = models.get_copilot_config(student_id)
+    tutor_id = (copilot_config["voice_agent_id"] if copilot_config
+                else models.get_tutor_preference(student_id) or "nova")
     mode = models.get_tutor_mode(student_id) or copilot.default_mode_for(tutor_id)
     language = models.get_tutor_language(student_id) or copilot.TUTOR_DEFAULT_LANGUAGE
-    return {"tutor_id": tutor_id, "mode": mode, "language": language}
+    payload = {"tutor_id": tutor_id, "mode": mode, "language": language}
+    if copilot_config:
+        payload["copilot"] = {
+            "configured": True,
+            "choice": copilot_config["choice"],
+            "name": copilot_config["name"],
+            "voice_agent_id": copilot_config["voice_agent_id"],
+        }
+    return payload
 
 
 @app.put("/api/students/{student_id}/tutor/preference")
@@ -1402,6 +1639,149 @@ def api_set_tutor_preference(student_id: int, request: Request, body: dict):
     current_mode = models.get_tutor_mode(student_id) or copilot.default_mode_for(current_tutor)
     current_language = models.get_tutor_language(student_id) or copilot.TUTOR_DEFAULT_LANGUAGE
     return {"tutor_id": current_tutor, "mode": current_mode, "language": current_language}
+
+
+@app.get("/api/students/{student_id}/copilot")
+def api_get_copilot(student_id: int, request: Request):
+    """The student's Build-Your-Copilot configuration, or None + the options.
+
+    ``options`` are the EXACT four current mentors (never more). ``copilot`` is
+    the frozen per-user snapshot when one has been built, else None.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    config = models.get_copilot_config(student_id)
+    return {"configured": config is not None,
+            "copilot": config,
+            "options": copilot.copilot_options()}
+
+
+@app.put("/api/students/{student_id}/copilot")
+def api_set_copilot(student_id: int, request: Request, body: dict):
+    """Build (or rebuild) the student's copilot from exactly one of the 4 mentors.
+
+    Snapshotting the chosen preset per-student (personality/capability config
+    + the one shared voice agent it speaks through). The voice agent also
+    becomes the active tutor so the SPA chat and TTS follow the copilot's voice.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    choice = copilot.validate_choice(body.get("choice"))
+    if choice is None:
+        raise HTTPException(status_code=400,
+                            detail="Unknown copilot (allowed: nova, axel, sage, vex)")
+    snapshot = copilot.snapshot_for(choice)
+    config = models.set_copilot_config(student_id, snapshot)
+    models.set_tutor_preference(student_id, snapshot["voice_agent_id"])
+    models.mark_copilot_manual(student_id)
+    return {"configured": True,
+            "copilot": config,
+            "options": copilot.copilot_options()}
+
+
+@app.delete("/api/students/{student_id}/copilot")
+def api_clear_copilot(student_id: int, request: Request):
+    """Remove the student's copilot and return to the fixed persona picker."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    models.clear_copilot_config(student_id)
+    return {"configured": False,
+            "copilot": None,
+            "options": copilot.copilot_options()}
+
+
+@app.get("/api/students/{student_id}/copilot/onboarding-state")
+def api_copilot_onboarding_state(student_id: int, request: Request):
+    """Where the student stands on the first-run copilot quiz (read-only).
+
+    ``state`` is not_started/completed/skipped, ``source`` records how the last
+    outcome was reached (quiz/skip/manual_change), and ``configured`` tells the
+    SPA whether a copilot is built, so the modal can show "already built → open
+    the picker instead" on a retake. A row that has never been written is
+    honestly reported as not_started. Lives on its own table so DELETE copilot
+    never resets the only-ask-once flag.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    onboarding = models.get_copilot_onboarding(student_id)
+    config = models.get_copilot_config(student_id)
+    return {
+        "state": onboarding["state"],
+        "source": onboarding["source"],
+        "answered_at": onboarding["answered_at"],
+        "configured": config is not None,
+        "copilot": config,
+        "options": copilot.copilot_options(),
+    }
+
+
+@app.post("/api/students/{student_id}/copilot/onboarding")
+def api_copilot_onboarding(student_id: int, request: Request, body: dict):
+    """Resolve the first-run copilot quiz (complete or skip).
+
+    Exactly one resolution must be provided: ``skipped=true`` (builds the
+    default nova mentor, state=skipped/source=skip) OR ``answers`` — a
+    list of exactly four valid mentor keys. The winner is ALWAYS the
+    server's recompute from ``answers`` (pure tally; ties break on Question 4,
+    then Question 1, then the default nova); an
+    optional ``choice`` field is validated but recomputed over, so a
+    mismatched client-submitted mentor can never win (spec: server is the
+    source of truth; the result screen's "choose this instead" is encoded by
+    the client substituting the desired key into the answer set). Completing
+    snapshots the winning mentor, pins the active tutor's voice agent, and
+    records state=completed/source=quiz with the raw answers persisted for
+    audit.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object")
+    skipped = body.get("skipped")
+    answers = body.get("answers")
+    choice = body.get("choice")
+
+    if skipped is True and answers not in (None, []):
+        raise HTTPException(
+            status_code=400,
+            detail="skipped and answers are mutually exclusive (choose one resolution)")
+
+    if skipped is True:
+        winner = copilot.DEFAULT_ARCHETYPE
+        state, source = "skipped", "skip"
+        stored_answers = []
+    else:
+        validated = copilot.validate_onboarding_answers(answers)
+        if validated is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"answers must be a list of exactly {copilot.ONBOARDING_QUESTION_COUNT} "
+                        "valid mentors (nova, axel, sage, vex)"))
+        if choice not in (None, ""):
+            if copilot.validate_choice(choice) is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Unknown copilot (allowed: nova, axel, sage, vex)")
+        winner = copilot.score_archetype(validated)
+        state, source = "completed", "quiz"
+        stored_answers = validated
+
+    snapshot = copilot.snapshot_for(winner)
+    config = models.set_copilot_config(student_id, snapshot)
+    models.set_tutor_preference(student_id, snapshot["voice_agent_id"])
+    onboarding = models.set_copilot_onboarding(student_id, state, source, stored_answers)
+    return {
+        "state": onboarding["state"],
+        "source": onboarding["source"],
+        "assigned": winner,
+        "answered_at": onboarding["answered_at"],
+        "copilot": config,
+        "options": copilot.copilot_options(),
+    }
 
 
 @app.post("/api/students/{student_id}/assessments/session")
@@ -1570,6 +1950,72 @@ def api_interview_tts(student_id: int, request: Request, body: dict):
                              headers={"Cache-Control": "max-age=3600"})
 
 
+@app.post("/api/students/{student_id}/interview/summary")
+def api_interview_summary(student_id: int, request: Request, body: dict):
+    """Deterministic Phase 4D mock-interview session summary.
+
+    Built ONLY from the stored conversation thread (question/answer exchange)
+    and bounded text stats — no provider call, so it never exposes transcripts
+    and always resolves. The summary is explicitly non-verifying practice
+    feedback and never creates or verifies a skill.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    conversation_id = body.get("conversation_id")
+    if not conversation_id:
+        raise HTTPException(status_code=400, detail="conversation_id is required")
+    try:
+        conversation_id = int(conversation_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="conversation_id must be an integer")
+    conversation = models.get_tutor_conversation(student_id, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    tutor_id = conversation["tutor_id"]
+    body_tutor = _validate_tutor_id(body.get("tutor_id"), field="tutor persona")
+    if body_tutor and body_tutor != tutor_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    messages = models.list_tutor_messages(student_id, tutor_id=tutor_id, conversation_id=conversation_id)
+    role_messages = [m for m in messages if m.get("role") in ("user", "assistant")]
+    if not any(m.get("content") or "" for m in role_messages):
+        raise HTTPException(status_code=400, detail="No interview messages in this conversation")
+    skill_id = body.get("skill_id")
+    skill_name = None
+    if skill_id:
+        skill = models.get_skill(skill_id)
+        skill_name = skill["name"] if skill else None
+    body_lang = body.get("language")
+    if body_lang is not None:
+        body_lang = copilot.validate_language(body_lang)
+        if body_lang is None:
+            raise HTTPException(status_code=400,
+                                detail="Unknown tutor language (allowed: auto, en, ar)")
+    language = copilot.resolve_language(
+        body_lang or conversation.get("language") or models.get_tutor_language(student_id) or "auto",
+        "",
+    )
+    student = models.get_student(student_id)
+    role = student.get("target_role") if student else None
+    summary = genai.interview_session_summary(
+        role_messages,
+        tutor_id=tutor_id,
+        language=language,
+        skill_name=skill_name,
+        target_role=role["title"] if role else None,
+    )
+    chars = int(sum(len(m.get("content") or "") for m in role_messages) or 0)
+    return {
+        "summary": summary,
+        "language": language,
+        "mode": conversation.get("mode") or "interview",
+        "tutor_id": tutor_id,
+        "conversation_id": conversation_id,
+        "turns": sum(1 for m in role_messages if m.get("role") == "user"),
+        "chars": chars,
+    }
+
+
 @app.post("/api/students/{student_id}/tutor/tts")
 def api_tutor_tts(student_id: int, request: Request, body: dict):
     """Speak any tutor reply aloud using the SAME ElevenLabs TTS pipeline.
@@ -1593,6 +2039,82 @@ def api_tutor_tts(student_id: int, request: Request, body: dict):
         raise HTTPException(status_code=503, detail=str(exc))
     return StreamingResponse(iter([audio]), media_type="audio/mpeg",
                              headers={"Cache-Control": "max-age=3600"})
+
+
+@app.post("/api/students/{student_id}/tutor/stt")
+def api_tutor_stt(student_id: int, request: Request, body: dict):
+    """Server-side speech-to-text fallback for browsers where the Web Speech API
+    is unavailable (e.g. Brave blocking Google's speech servers).
+
+    Accepts base64-encoded WAV audio (16-bit PCM, mono, 16 kHz) produced by the
+    frontend's AudioContext recorder, returns the transcribed text. Uses Google's
+    free speech recognition via the SpeechRecognition library (no API key needed
+    for short utterances; rate-limited).
+    """
+    import base64
+    import io
+    try:
+        import speech_recognition as sr
+    except ImportError:
+        raise HTTPException(status_code=501, detail="STT not available on this server")
+
+    user = _current_user(request)
+    _own_student(user, student_id)
+    audio_b64 = body.get("audio")
+    if not audio_b64 or not isinstance(audio_b64, str):
+        raise HTTPException(status_code=400, detail="Missing base64 audio")
+    lang = body.get("language", "en")
+    google_lang = "ar-EG" if lang == "ar" else "en-US"
+    try:
+        wav_bytes = base64.b64decode(audio_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 audio")
+    # sr.AudioData expects RAW PCM (no container). Strip a RIFF/WAVE header if
+    # the frontend sent a .wav container.
+    if wav_bytes[0:4] == b"RIFF" and wav_bytes[8:12] == b"WAVE":
+        import struct
+        try:
+            sample_rate, sample_width = _wav_format(wav_bytes)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Unsupported WAV container")
+        wav_bytes = wav_bytes[44:]
+    else:
+        sample_rate, sample_width = 16000, 2
+    if not wav_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio")
+    try:
+        audio_data = sr.AudioData(wav_bytes, sample_rate, sample_width)
+        recognizer = sr.Recognizer()
+        text = recognizer.recognize_google(audio_data, language=google_lang)
+    except sr.UnknownValueError:
+        text = ""
+    except sr.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"STT service unavailable: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"STT failed: {exc}")
+    return {"text": text}
+
+
+def _wav_format(wav_bytes: bytes):
+    """Return (sample_rate, sample_width) from a 16/24/32-bit PCM RIFF header."""
+    import struct
+
+    def _find(data, chunk_id, start=12):
+        pos = start
+        while pos + 8 <= len(data):
+            cid = data[pos:pos + 4]
+            size = struct.unpack("<I", data[pos + 4:pos + 8])[0]
+            if cid == chunk_id:
+                return pos + 8, size
+            pos += 8 + size + (size & 1)
+        raise ValueError(f"chunk {chunk_id} not found")
+
+    fmt_pos, _ = _find(wav_bytes, b"fmt ")
+    sample_rate = struct.unpack("<I", wav_bytes[fmt_pos + 4:fmt_pos + 8])[0]
+    bits = struct.unpack("<H", wav_bytes[fmt_pos + 14:fmt_pos + 16])[0]
+    if bits not in (16, 24, 32):
+        raise ValueError(f"unsupported bits {bits}")
+    return sample_rate, bits // 8
 
 
 # ------------------------------------------------------------------ assessments
@@ -2070,6 +2592,26 @@ def _diagnostic_questions(diag):
     return json.loads(raw) if isinstance(raw, str) else raw or []
 
 
+def _curated_diagnostic_questions(skill_name, topics):
+    """Reviewed, exactly-tagged diagnostic questions for a curated skill.
+
+    Returns [] for skills the knowledge base has not authored, so the generic
+    generator is used there. Curated questions are never relabelled to another
+    competency merely to reach a target question count.
+    """
+    raw = knowledge_base.curated_diagnostic_questions(skill_name, topics)
+    out = []
+    for i, q in enumerate(raw or []):
+        if not isinstance(q, dict):
+            continue
+        item = dict(q)
+        item.setdefault("id", f"d{i}")
+        item.setdefault("options", [])
+        item.setdefault("difficulty", "beginner")
+        out.append(item)
+    return out
+
+
 @app.post("/api/students/{student_id}/learning/{skill_id}/diagnostic/generate")
 def api_generate_diagnostic(student_id: int, skill_id: int, request: Request, body: dict):
     """Generate a topic-level diagnostic for a (student, skill). Determines which
@@ -2088,9 +2630,13 @@ def api_generate_diagnostic(student_id: int, skill_id: int, request: Request, bo
         num = max(0, min(int(body.get("num_questions") or 0), 20))
     except (TypeError, ValueError):
         num = 0
-    questions = genai.generate_diagnostic(
-        skill["name"], topics, role.get("title") if role else None,
-        num_questions=num or None)
+    curated = _curated_diagnostic_questions(skill["name"], topics)
+    if curated:
+        questions = curated
+    else:
+        questions = genai.generate_diagnostic(
+            skill["name"], topics, role.get("title") if role else None,
+            num_questions=num or None)
     models.delete_unanswered_diagnostics(student_id, skill_id)
     diag = models.create_diagnostic(student_id, skill_id, questions)
     return {"skill": skill, "topics": topics, "questions": questions,
@@ -2181,8 +2727,10 @@ def api_generate_personalized_path(student_id: int, skill_id: int, request: Requ
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
 
-    diag = models.get_latest_diagnostic(student_id, skill_id)
-    if not diag or not diag.get("completed_at"):
+    # Key off the latest COMPLETED diagnostic: a newer unanswered diagnostic
+    # must never hide the completed one the existing path was built from.
+    diag = models.get_latest_completed_diagnostic(student_id, skill_id)
+    if not diag:
         return {"diagnostic_required": True, "path": None}
 
     existing = models.get_personalized_path_for_diagnostic(student_id, skill_id, diag["id"])
@@ -2240,24 +2788,35 @@ def api_final_assessment_status(student_id: int, skill_id: int, request: Request
     role = student.get("target_role") or {}
     required_level = _path_required_level(student, role, skill_id)
 
-    diag = models.get_latest_diagnostic(student_id, skill_id)
+    # Key off the latest COMPLETED diagnostic, never a newer unanswered one.
+    diag = models.get_latest_completed_diagnostic(student_id, skill_id)
     diag_ready = False
     topics = []
-    if diag and diag.get("completed_at"):
+    if diag:
         topics = (models.public_diagnostic(diag).get("topic_results") or [])
         diag_ready = True
+    latest_diagnostic_id = diag["id"] if diag else None
 
     path = models.get_personalized_path(student_id, skill_id)
     path_items = []
     path_progress = []
     skipped = []
     path_ready = False
+    path_stale = False
     if path:
-        items = json.loads(path.get("items")) if isinstance(path.get("items"), str) else path.get("items") or []
-        path_items = items
-        path_progress = json.loads(path.get("progress")) if isinstance(path.get("progress"), str) else path.get("progress") or []
-        skipped = json.loads(path.get("skipped_mastered")) if isinstance(path.get("skipped_mastered"), str) else path.get("skipped_mastered") or []
+        # A path belongs to one diagnostic. If a newer completed diagnostic
+        # supersedes it, the stale path must never satisfy requirements on its
+        # own — only the current completed diagnostic evidence counts.
+        path_diagnostic_id = path.get("diagnostic_id")
+        path_stale = (latest_diagnostic_id is not None
+                      and path_diagnostic_id is not None
+                      and path_diagnostic_id != latest_diagnostic_id)
         path_ready = True
+        if not path_stale:
+            items = json.loads(path.get("items")) if isinstance(path.get("items"), str) else path.get("items") or []
+            path_items = items
+            path_progress = json.loads(path.get("progress")) if isinstance(path.get("progress"), str) else path.get("progress") or []
+            skipped = json.loads(path.get("skipped_mastered")) if isinstance(path.get("skipped_mastered"), str) else path.get("skipped_mastered") or []
 
     readiness = coverage.final_assessment_ready(
         skill["name"], required_level, topics, path_items, path_progress, skipped)
@@ -2267,6 +2826,8 @@ def api_final_assessment_status(student_id: int, skill_id: int, request: Request
         "required_level": required_level,
         "diagnostic_completed": diag_ready,
         "path_exists": path_ready,
+        "path_stale": path_stale,
+        "latest_diagnostic_id": latest_diagnostic_id,
         "has_blueprint": skill_blueprint.has_blueprint(skill["name"]),
         "readiness": readiness,
     }
@@ -2438,8 +2999,25 @@ def api_submit_practice(student_id: int, skill_id: int, competency: str,
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
     student = models.get_student(student_id)
+    canonical_source = ((lesson.get("content") or {}).get("canonical") or {}).get("source")
+    curated = canonical_source == "trusted_cs_knowledge_base"
+
+    # Curated practice is deterministic: an identical resubmission returns the
+    # stored attempt (and its static-check evidence) instead of duplicating it.
+    attempts_all = models.list_practice_attempts(student_id, lesson["id"])
+    if curated:
+        reused_attempt = next(
+            (a for a in attempts_all if str(a.get("answer") or "").strip() == answer), None)
+        if reused_attempt:
+            return {"attempt": reused_attempt, "reused": True,
+                    "attempts_count": len(attempts_all)}
+
     previous_attempts = models.list_practice_attempts(student_id, lesson["id"], limit=3)
     practice_task = _practice_task_for_submission(student_id, lesson, body)
+    static_check = practice.python_functions_static_check(lesson, answer)
+    if static_check is not None and (practice_task or {}).get("source") != "remediation":
+        practice_task = dict(practice_task)
+        practice_task["static_check"] = static_check
     context = practice.build_evaluation_context(
         student=student,
         skill=skill,
@@ -2449,7 +3027,14 @@ def api_submit_practice(student_id: int, skill_id: int, competency: str,
         previous_attempts=previous_attempts,
         practice_task=practice_task,
     )
-    result = practice.evaluate_practice(context, answer)
+    context["strict"] = curated
+    try:
+        result = practice.evaluate_practice(context, answer)
+    except practice.PracticeProviderError:
+        raise HTTPException(
+            status_code=503,
+            detail=("Practice review is temporarily unavailable. "
+                    "Please retry in a moment."))
     remediation = practice.generate_remediation(context, result, answer)
     attempt = models.create_practice_attempt(
         student_id=student_id,
@@ -2615,6 +3200,34 @@ def api_unsave_role(student_id: int, role_id: int, request: Request):
     return {"role_ids": models.list_saved_roles(student_id)}
 
 
+@app.get("/api/students/{student_id}/recent-roles")
+def api_list_recent_roles(student_id: int, request: Request):
+    """Roles this student opened most recently (Phase L recently-viewed). The
+    list is private to the student, newest-first, capped in the data layer."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    return {"roles": models.list_recent_role_views(student_id)}
+
+
+@app.post("/api/students/{student_id}/recent-roles")
+def api_record_role_view(student_id: int, request: Request, body: dict):
+    """Record a student opening a role's details so the explorer can surface it
+    under Recently viewed. Unknown role -> 404; a re-view just refreshes the
+    timestamp (upsert, never duplicates)."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    role_id = (body or {}).get("role_id")
+    if not isinstance(role_id, int) or role_id <= 0:
+        raise HTTPException(status_code=400, detail="role_id must be a positive integer")
+    try:
+        viewed_at = models.record_role_view(student_id, role_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"viewed_at": viewed_at}
+
+
 @app.post("/api/students/{student_id}/learning/{skill_id}/lessons/{competency}/mini-check")
 def api_submit_mini_check(student_id: int, skill_id: int, competency: str,
                           request: Request, body: dict):
@@ -2644,7 +3257,50 @@ def api_submit_mini_check(student_id: int, skill_id: int, competency: str,
             "path_progress": path_progress}
 
 
+# ---------------------------------------------------------------- learning agent
+
+@app.get("/api/students/{student_id}/learning/{skill_id}/orchestrator/next")
+def api_learning_orchestrator_next(student_id: int, skill_id: int, request: Request):
+    """Deterministic Observe -> Decide next action for the active learning path.
+
+    Read-only apart from the idempotent progress sync that follows a real Mini
+    Check pass. It never grades, never invents curriculum, and never verifies a
+    skill; lesson/practice/Mini Check/Final Assessment keep their authorities.
+    """
+    user = _current_user(request)
+    _own_diagnostic(user, student_id)
+    skill = models.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return learning_orchestrator.observe_and_decide(student_id, skill)
+
+
 # ------------------------------------------------------------------ recent jobs
+
+def _student_feed_profile(user, location="", country="", market=""):
+    """Feed coordinates for the current user: student profile, skills, role
+    title, country, location, and role requisites — the EXACT inputs both the
+    recent-jobs feed and the Phase K job saver run on, so a saved snapshot
+    always matches what the student actually saw."""
+    loc = location or user.get("location") or ""
+    cty = country or user.get("country") or ""
+    skills = []
+    requisites = []
+    role = ""
+    student = None
+    if user["role"] == "Student":
+        student = models.get_student_by_user(user["id"])
+        if student:
+            for s in student.get("self_reported_skills") or []:
+                skills.append((s["name"], s.get("level") or "Beginner", False))
+            for v in student.get("verified_skills") or []:
+                skills.append((v["name"], v.get("level") or "Intermediate", True))
+            role = (student.get("target_role") or {}).get("title") or ""
+            for rs in (student.get("target_role") or {}).get("required_skills") or []:
+                if rs.get("name"):
+                    requisites.append(rs["name"])
+    return student, skills, role, cty, loc, requisites
+
 
 @app.get("/api/jobs/recent")
 def api_recent_jobs(request: Request, limit: int = 10, location: str = "", country: str = "", market: str = ""):
@@ -2657,39 +3313,235 @@ def api_recent_jobs(request: Request, limit: int = 10, location: str = "", count
     a Cairo student) that widens reach via location-scoped feeds like Adzuna —
     clearly surfaced as a relocation search, never implied to be local."""
     user = _current_user(request)
-    loc = location or user.get("location") or ""
-    cty = country or user.get("country") or ""
-    skills = []
-    context = {"country": cty, "role": ""}
-    requisites = []
-    student = None
-    if user["role"] == "Student":
-        student = models.get_student_by_user(user["id"])
-        if student:
-            for s in student.get("self_reported_skills") or []:
-                skills.append((s["name"], s.get("level") or "Beginner", False))
-            for v in student.get("verified_skills") or []:
-                skills.append((v["name"], v.get("level") or "Intermediate", True))
-            role = (student.get("target_role") or {}).get("title")
-            context["role"] = role or ""
-            for rs in (student.get("target_role") or {}).get("required_skills") or []:
-                if rs.get("name"):
-                    requisites.append(rs["name"])
-    elif user["role"] == "Company":
-        # Companies see general recent openings so they can gauge the market.
-        context["role"] = ""
+    student, skills, role, cty, loc, requisites = _student_feed_profile(
+        user, location=location, country=country, market=market)
     # Students only search AFTER their CV is uploaded: the role feed is matched
     # to their CV-derived profile, so we never fetch before an upload populates
     # self-reported skills.
     if user["role"] == "Student" and not student.get("self_reported_skills"):
         return {"source": "no-cv", "jobs": [], "groups": {
             "local_count": 0, "broader_count": 0, "other_count": 0}}
-    return jobs.recent_jobs(skills=skills, role=context["role"],
-                            country=context["country"],
+    return jobs.recent_jobs(skills=skills, role=role,
+                            country=cty,
                             location=loc,
                             limit=min(max(int(limit), 1), 16),
                             role_requisites=requisites,
-                            market_country=market)
+                            market_country=market,
+                            request_id=getattr(request.state, "request_id", "") or "")
+
+
+# ------------------------------------------------------------------ Phase K: saved jobs + private tracker
+
+def _tracker_or_http(e):
+    if isinstance(e, models.TrackerError):
+        return HTTPException(status_code=e.code, detail=e.message)
+    raise e
+
+
+@app.get("/api/students/{student_id}/jobs/tracker")
+def api_job_tracker_list(student_id: int, request: Request):
+    """The student's private application tracker (saved/preparing/applied/...).
+    Student-only and ownership-gated; companies and universities never see it."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    items = models.list_job_tracker(student_id)
+    return {
+        "items": items,
+        "counts": {stage: sum(1 for i in items if i["stage"] == stage)
+                   for stage in models.JOB_TRACKER_STAGES},
+    }
+
+
+@app.get("/api/students/{student_id}/jobs/tracker/{tracker_id}")
+def api_job_tracker_get(student_id: int, tracker_id: int, request: Request):
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    entry = models.get_tracker_entry(student_id, tracker_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Tracker entry not found")
+    return entry
+
+
+@app.post("/api/students/{student_id}/jobs/saved")
+def api_save_job(student_id: int, request: Request, body: dict):
+    """Save a currently-surfaced feed job into the tracker (idempotent).
+
+    The snapshot is taken from the student's own live feed at save time via the
+    same machinery that rendered the number they saw (locate_feed_job); a job
+    that is not in the current feed is a 404 — a snapshot is never fabricated.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    fingerprint = (body or {}).get("fingerprint")
+    if not fingerprint:
+        raise HTTPException(status_code=400, detail="fingerprint is required")
+    student, skills, role, cty, loc, requisites = _student_feed_profile(
+        user, location=(body or {}).get("location") or "",
+        country=(body or {}).get("country") or "")
+    market = (body or {}).get("market") or ""
+    if not student or not student.get("self_reported_skills"):
+        raise HTTPException(status_code=404, detail="No CV yet — nothing to save")
+    job = jobs.locate_feed_job(skills, role, cty, loc, requisites, market, fingerprint)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found in the current feed")
+    tracker_id, created = models.save_job_snapshot(student_id, job)
+    return {"tracker_id": tracker_id, "created": created,
+            "item": models.get_tracker_entry(student_id, tracker_id)}
+
+
+@app.patch("/api/students/{student_id}/jobs/tracker/{tracker_id}")
+def api_update_tracker_item(student_id: int, tracker_id: int, request: Request, body: dict):
+    """Update note/optional dates, or move the job across the stage allow-list.
+    Every stage change is appended to the tracker_stage_history audit table;
+    re-applying the same stage is a no-op. Invalid transitions -> 409/400."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    try:
+        return models.update_tracker_entry(
+            student_id, tracker_id,
+            stage=body.get("stage"), note=body.get("note"),
+            interview_date=body.get("interview_date"),
+            application_deadline=body.get("application_deadline"))
+    except models.TrackerError as e:
+        raise _tracker_or_http(e)
+
+
+@app.delete("/api/students/{student_id}/jobs/tracker/{tracker_id}")
+def api_delete_tracker_item(student_id: int, tracker_id: int, request: Request):
+    """Delete ONLY a still-'saved' tracker row (the frontend asks for
+    confirmation). Anything beyond saved keeps its history — 409 with a reason."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    try:
+        models.delete_saved_only(student_id, tracker_id)
+    except models.TrackerError as e:
+        raise _tracker_or_http(e)
+    return {"deleted": True}
+
+
+# ------------------------------------------------------------------ Phase N: job-link reports
+
+@app.get("/api/students/{student_id}/jobs/link-reports")
+def api_job_link_reports(student_id: int, request: Request):
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    return {"reports": models.list_job_link_reports(student_id)}
+
+
+@app.post("/api/students/{student_id}/jobs/recent/{fingerprint}/report-dead-link")
+def api_report_job_link(student_id: int, fingerprint: str, request: Request, body: dict | None = None):
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    student, skills, role, cty, loc, requisites = _student_feed_profile(
+        user, location=(body or {}).get("location") or "", country=(body or {}).get("country") or "")
+    market = (body or {}).get("market") or ""
+    job = jobs.locate_feed_job(skills, role, cty, loc, requisites, market, fingerprint)
+    if job is None:
+        # A previously saved snapshot is a valid report target even if it has
+        # disappeared from the short-lived live feed.
+        job = next((x for x in models.list_job_tracker(student_id) if x["fingerprint"] == fingerprint), None)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found in your feed or tracker")
+    report_id, created = models.report_job_link(student_id, job)
+    return {"report_id": report_id, "created": created, "fingerprint": fingerprint}
+
+
+# ------------------------------------------------------------------ Phase Q: prepare-for-job readiness
+
+@app.get("/api/students/{student_id}/jobs/recent/{fingerprint}/prepare")
+def api_job_prepare(student_id: int, fingerprint: str, request: Request,
+                    location: str = "", country: str = "", market: str = ""):
+    """Read-only readiness view for a job the student is actually seeing.
+
+    Uses the SAME feed coordinates as the recent-jobs feed (``_student_feed_profile``)
+    and a cache-only ``peek_feed_job`` lookup — it never triggers a feed build.
+    Each required skill resolves against the student's own verified/self-reported
+    records by exact canonical name; ``skill_id`` is a real skills row id or null
+    and unresolvable names are honestly ``no_path``."""
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    student, skills, role, cty, loc, requisites = _student_feed_profile(
+        user, location=location, country=country, market=market)
+    if not student or not student.get("self_reported_skills"):
+        raise HTTPException(status_code=404, detail="No CV yet — nothing to prepare")
+    hit = jobs.peek_feed_job(skills, role, cty, loc, requisites, market, fingerprint)
+    if not hit or not hit.get("found") or hit.get("job") is None:
+        raise HTTPException(status_code=404, detail="Job not found in the current feed")
+    return models.prepare_job_view(student, hit["job"])
+
+
+# ------------------------------------------------------------------ Phase J: explainable role and job matching
+
+def _breakdown_or_http(e):
+    if isinstance(e, match_explain.MatchExplainError):
+        return HTTPException(status_code=e.status_code, detail=e.message)
+    raise e
+
+
+@app.get("/api/students/{student_id}/target-role-match/breakdown")
+def api_target_role_match_breakdown(student_id: int, request: Request):
+    """Read-only decomposition of the student's Dashboard role-match score
+    (the ``analysis.match_score`` ring) into per-required-skill contributions
+    plus labelled rounding adjustments that sum EXACTLY to the displayed
+    number. Self-reported evidence is never shown as verified; a missing skill
+    contributes zero and is labelled missing, never a penalty."""
+    user = _current_user(request)
+    _own_student(user, student_id)
+    student = models.get_student(student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    try:
+        return match_explain.target_role_match_breakdown(student)
+    except match_explain.MatchExplainError as e:
+        raise _breakdown_or_http(e)
+
+
+@app.get("/api/students/{student_id}/role-match/breakdown")
+def api_role_match_breakdown(student_id: int, request: Request,
+                             role_id: int | None = None, external_id: str = ""):
+    """Read-only decomposition of one recommendation card's match_score ring
+    (role_id for local/catalog roles, external_id for ESCO occupations)."""
+    user = _current_user(request)
+    _own_student(user, student_id)
+    student = models.get_student(student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    query = str(role_id) if role_id is not None else (external_id.strip() or None)
+    if not query:
+        raise HTTPException(status_code=400, detail="Provide role_id or external_id")
+    try:
+        return match_explain.role_match_breakdown(student, query)
+    except match_explain.MatchExplainError as e:
+        raise _breakdown_or_http(e)
+
+
+@app.get("/api/students/{student_id}/jobs/recent/{fingerprint}/breakdown")
+def api_job_match_breakdown(student_id: int, fingerprint: str, request: Request,
+                            location: str = "", country: str = "", market: str = "",
+                            limit: int = 10):
+    """Read-only decomposition of one jobs-feed row's match_pct badge, rebuilt
+    from the exact normalized record the student saw (same feed cache key, same
+    scoring context), with components + labelled cap/rounding lines summing
+    EXACTLY to the stored match_pct. Missing external data stays unknown."""
+    user = _current_user(request)
+    _own_student(user, student_id)
+    student = models.get_student(student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    try:
+        return match_explain.job_match_breakdown(
+            student, fingerprint, location=location, country=country, market=market,
+            limit=max(1, min(int(limit), 16)))
+    except match_explain.MatchExplainError as e:
+        raise _breakdown_or_http(e)
 
 
 # ------------------------------------------------------------------ public verified-skills profile
@@ -2844,6 +3696,11 @@ def _mount_frontend():
 
     @app.get("/{full_path:path}")
     def spa(full_path: str):
+        # Unknown API paths must never fall through to the SPA shell: a client
+        # calling a mistyped or removed endpoint has to get a structured JSON
+        # error, not HTTP 200 index.html.
+        if full_path == "api" or full_path.startswith("api/"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
         candidate = (dist / full_path).resolve()
         if full_path and candidate.is_file() and str(candidate).startswith(str(dist.resolve())):
             return FileResponse(str(candidate))

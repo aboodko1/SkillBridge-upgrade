@@ -24,6 +24,8 @@ import app.models as models
 import app.role_mapping as role_mapping
 
 MIGRATION_0005 = "0005_company_role_mapping"
+MIGRATION_0006 = "0006_saved_jobs_tracker"
+MIGRATION_0007 = "0007_role_view_events"
 
 
 # ------------------------------------------------------------------ helpers
@@ -88,7 +90,7 @@ def test_migration_0005_on_fresh_db(tmp_path):
     try:
         database.init_db()
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == MIGRATION_0005
+        assert applied[-1] == "0014_conversation_live_meta"
         assert {"canonical_role_id", "canonical_mapping_updated_at"} <= _conn_columns(conn, "roles")
         tables = {r["name"] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
@@ -106,7 +108,7 @@ def test_migration_0005_upgrades_pre_0005_db_and_keeps_rows(tmp_path):
     conn = _file_db(tmp_path)
     database.set_db_for_test(conn)
     try:
-        pre = [m for m in database.MIGRATIONS if m["id"] != MIGRATION_0005]
+        pre = [m for m in database.MIGRATIONS if m["id"] not in (MIGRATION_0005, MIGRATION_0006, MIGRATION_0007)]
         database.run_migrations(conn=conn, migrations=pre)
         conn.execute("INSERT INTO companies (name, industry, location) "
                      "VALUES ('Old Co', 'AI', 'Cairo')")
@@ -116,7 +118,7 @@ def test_migration_0005_upgrades_pre_0005_db_and_keeps_rows(tmp_path):
         assert "role_mapping_events" not in {r["name"] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         pending = database.run_migrations()
-        assert pending == [MIGRATION_0005]
+        assert pending == [MIGRATION_0005, MIGRATION_0006, MIGRATION_0007]
         kept = conn.execute("SELECT title FROM roles WHERE title='Legacy Opening'").fetchone()
         assert kept is not None
         canon_null = conn.execute(

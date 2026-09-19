@@ -21,25 +21,29 @@ export function SkillTag({ name, level, verified }: { name: string; level: strin
   )
 }
 
-export function ScoreRing({ value }: { value: number }) {
+export function ScoreRing({ value, label = 'Requirement coverage', explainer }: {
+  value: number
+  label?: string
+  explainer?: string
+}) {
   const r = 62
   const c = 2 * Math.PI * r
   const pct = Math.max(0, Math.min(100, value))
   const offset = c - (pct / 100) * c
   return (
-    <div className="score-ring-view">
+    <div className="score-ring-view" title={explainer || undefined}>
       <div className="score-ring">
         <svg width="150" height="150">
           <circle cx="75" cy="75" r={r} fill="none" stroke="var(--slate-100)" strokeWidth="12" />
           <circle
             cx="75" cy="75" r={r} fill="none"
-            stroke="var(--coral)" strokeWidth="12" strokeLinecap="round"
+            stroke="var(--sb-indigo)" strokeWidth="12" strokeLinecap="round"
             strokeDasharray={c} strokeDashoffset={offset}
           />
         </svg>
         <div className="ring-label">
           <strong>{Math.round(value)}%</strong>
-          <small>Match</small>
+          <small>{label}</small>
         </div>
       </div>
     </div>

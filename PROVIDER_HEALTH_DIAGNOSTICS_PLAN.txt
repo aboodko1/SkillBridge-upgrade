@@ -89,14 +89,23 @@ GOAL I4 — Tests (new backend/tests/test_provider_health_diagnostics_phaseI.py)
 - cached/stale_fallback vocabulary tie-in at feed level (already implemented in
   Phase G) asserted in this suite too.
 
+IMPLEMENTATION STATUS
+---------------------
+Plan: written ✔ | Code: IMPLEMENTED ✔ | Tests: 28 passed ✔ | Full backend suite: 1019 passed / 5 skipped ✔ | Deploy: approved (restart-only, live smoke verified) ✔
+
+Completed (per approved design):
+- Phase I health vocabulary constants + `_health_of` mapper + `_disabled_providers()` feature-flag gate + `_PROVIDER_COOLDOWN`-aware cooldown/timeout conflation + malformed-response error-text classification (guide lines 470-505).
+- `provider_status()`: `providers_health` + `last_build_at` + fingerprint-keyed TTL snapshot (`JOBS_HEALTH_TTL_SECONDS` default 10s); `providers_configured`/`providers_available` exclude feature-flag-disabled.
+- `_redact` URL → `<url>` / email → `<email>` hardening.
+- `request_id` threaded through `recent_jobs` → `_build_result` → `_fetch_all`; `[rid]`-prefixed provider outcome logs; `request_id` excluded from global `_provider_status` update; `_build_result` providers entries gain `health`; commit sets `last_build_at` + invalidates health snapshot.
+- `JOBS_DISABLED_PROVIDERS` env support; `disabled_by_feature_flag` status.
+- Tests: `backend/tests/test_provider_health_diagnostics_phaseI.py` (28).
+- Live smoke verified (source live/cached, all 12 providers with `health`, demo-mode `providers_health`/`last_build_at`/`cache`, request-id in logs).
+- `AGENTS.md` Phase I section appended.
+
 VERIFICATION GATE
 -----------------
-Focused: new Phase I suite + the G/H job suites. Then FULL backend suite
-(991 + new == green). Deploy gate (needs owner approval): restart :8000 with a
-live smoke of /api/jobs/recent (providers[].health) + /api/config/demo-mode
-(jobs.providers_health, jobs.last_build_at).
+✔ Focused + full backend suite: **1019 passed / 5 skipped**.
+✔ Deploy gate approved (restart-only). Server PID 47362, `/tmp/sb-backend.log`, `http://localhost:8000`. Live smoke: `GET /api/jobs/recent` (source live/cached, every provider carries `health`), `GET /api/config/demo-mode` (`providers_health`, `last_build_at`, `cache`).
 
-OUT OF SCOPE (documented): no frontend change (legacy status fields preserved);
-genai.provider_status untouched; no DB migration; no new provider; no re-writing
-of the 12 fetch functions' outcome recording (mapping is derived at the
-consolidation boundary).
+OUT OF SCOPE (documented): no frontend change (legacy status fields preserved; `health` additive/ignored); genai.provider_status untouched; no DB migration; no new provider; no re-writing of the 12 fetch functions' outcome recording (mapping derived at consolidation boundary).

@@ -1,13 +1,22 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import { useApp } from '../AppContext'
 import { api } from '../lib/api'
-import type { LearningItem, TutorMessage, TutorMode } from '../lib/types'
-import { TUTOR_PROFILES, TutorAbout, TutorSelector } from './learning'
+import type { LearningItem, TutorConversation, TutorMessage, TutorMode } from '../lib/types'
+import { TUTOR_PROFILES, TutorAbout } from './learning'
 import type { TutorId } from '../lib/tutorProfiles'
 import { effectiveLanguage, LANGUAGE_LABELS, LANGUAGE_SHORT, quickActionsFor, TUTOR_LANGUAGES, tutorUi } from '../lib/tutorI18n'
 import { useBrowserSpeech } from '../hooks/useBrowserSpeech'
-import { IconBack, IconBackRTL, IconChat, IconChevron, IconCollapse, IconExpand, IconLock, IconMic, IconPlus, IconSend, IconSendRTL, IconStop, IconTrash, IconTutor, IconVolume } from './Icons'
+import { isBraveBrowser } from '../lib/browserDetect'
+import { resolveInitialLiveLang, useVoiceSession } from '../hooks/useVoiceSession'
+import { VoiceMode } from './VoiceMode'
+import { PersonaMenu } from './PersonaMenu'
+import { MoreMenu } from './MoreMenu'
+import { ChatThread } from './ChatThread'
+import { SuggestionGrid } from './SuggestionGrid'
+import { Composer } from './Composer'
+import { IconBack, IconBackRTL, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconCollapse, IconCopy, IconDots, IconExpand, IconHeadset, IconLightbulb, IconLock, IconMic, IconPlus, IconSendUp, IconShield, IconSparkles, IconStop, IconVolume, IconClipboard, IconWaveform } from './Icons'
+import { type ResponseRating } from './ResponseActions'
 
 function SafeMarkdown({ children }: { children: React.ReactNode }) {
   return <Markdown>{String(children ?? '')}</Markdown>
@@ -30,6 +39,13 @@ const PAGE_LABELS: Record<string, string> = {
   assessment: 'Assessment',
 }
 
+function conversationStamp(value?: string | null) {
+  if (!value) return ''
+  const date = new Date(String(value).replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
 interface InterviewItem {
   id: number
   kind: 'question' | 'answer' | 'feedback'
@@ -44,9 +60,9 @@ export function CopilotPanel() {
   const studentId = session?.student?.id ?? 0
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  // One conversation per tutor: switching tutor swaps the whole thread, and a
-  // New Chat clears only the current tutor's thread.
-  const [chats, setChats] = useState<Partial<Record<TutorId, TutorMessage[]>>>({})
+  const [conversations, setConversations] = useState<TutorConversation[]>([])
+  const [activeConversationId, setActiveConversationId] = useState<number | null>(null)
+  const [chats, setChats] = useState<Record<number, TutorMessage[]>>({})
   const [interviewThreads, setInterviewThreads] = useState<Partial<Record<TutorId, InterviewItem[]>>>({})
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -54,7 +70,9 @@ export function CopilotPanel() {
   const [interviewInput, setInterviewInput] = useState('')
   const [interviewError, setInterviewError] = useState('')
   const [aboutOpen, setAboutOpen] = useState(false)
-  const [confirmAction, setConfirmAction] = useState<null | 'newchat' | 'clear'>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [clearModalOpen, setClearModalOpen] = useState(false)
   const [lastReply, setLastReply] = useState<'en' | 'ar' | null>(null)
   const [speakingKey, setSpeakingKey] = useState<string | null>(null)
   const [speakBusy, setSpeakBusy] = useState(false)
@@ -62,15 +80,35 @@ export function CopilotPanel() {
   const [micTarget, setMicTarget] = useState<'chat' | 'interview'>('chat')
   const [interviewVoiceState, setInterviewVoiceState] = useState<InterviewVoiceState>('student_ready')
   const [typedFallbackOpen, setTypedFallbackOpen] = useState(false)
+  const [voiceOpen, setVoiceOpen] = useState(false)
+  // Explicit Live speech language (EN | Arabic). Live Voice has NO Auto mode:
+  // resolved to an explicit locale when Live opens (see startLiveVoice) and then
+  // switched mid-session only through the in-surface EN | عربي selector.
+  const [voiceLang, setVoiceLang] = useState<'en' | 'ar'>('en')
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [ratings, setRatings] = useState<Record<string, ResponseRating | null | undefined>>({})
+  const [retryingKey, setRetryingKey] = useState<string | null>(null)
+  const shareDisabled = typeof navigator === 'undefined' || !('share' in navigator)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const interviewScrollRef = useRef<HTMLDivElement>(null)
   const nextId = useRef(0)
+  const activeConversationIdRef = useRef<number | null>(null)
+  const clearCancelRef = useRef<HTMLButtonElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const urlRef = useRef<string | null>(null)
   const audioRequestRef = useRef(0)
   const interviewCancelledRef = useRef(false)
+  // Chat dictation state: transcript is typed into the composer (never opens
+  // the live VoiceMode orb — that is the separate Live/waveform button).
+  const dictatingRef = useRef(false)
+  const dictBaseRef = useRef('')
   // The tutor's working mode before an interview, restored by "Return to Chat".
   const prevModeRef = useRef<TutorMode>('chat')
   const speech = useBrowserSpeech()
+  // Brave ships Chromium's Web Speech API, but cannot reach Google's speech
+  // servers (network-blocked), so browser STT hangs or loops on empty errors.
+  // Detect it and drive Live voice through the server-side STT recorder.
+  const isBrave = isBraveBrowser()
 
   const tutor = TUTOR_PROFILES.find((t) => t.id === tutorId) || TUTOR_PROFILES[0]
   const lang = effectiveLanguage(language, lastReply)
@@ -79,6 +117,47 @@ export function CopilotPanel() {
   const interviewLang: 'en' | 'ar' = interview.language === 'ar' ? 'ar' : 'en'
   const selectedInterviewLang: 'en' | 'ar' = language === 'ar' ? 'ar' : 'en'
 
+  const upsertConversation = useCallback((conversation?: TutorConversation | null) => {
+    if (!conversation) return
+    setConversations((prev) => {
+      const next = [conversation, ...prev.filter((c) => c.id !== conversation.id)]
+      return next.sort((a, b) => {
+        const byTime = String(b.last_message_at || b.updated_at).localeCompare(String(a.last_message_at || a.updated_at))
+        return byTime || b.id - a.id
+      })
+    })
+  }, [])
+
+  const refreshConversations = useCallback(async () => {
+    if (!studentId) return [] as TutorConversation[]
+    try {
+      const res = await api.tutorConversations(studentId)
+      setConversations((prev) => {
+        const activeId = activeConversationIdRef.current
+        const activeEmpty = activeId ? prev.find((c) => c.id === activeId && (c.message_count ?? 0) === 0) : undefined
+        return activeEmpty && !res.conversations.some((c) => c.id === activeEmpty.id)
+          ? [activeEmpty, ...res.conversations]
+          : res.conversations
+      })
+      return res.conversations
+    } catch (e) {
+      console.error('[copilot] conversations failed:', e)
+      return [] as TutorConversation[]
+    }
+  }, [studentId])
+
+  const ensureChatConversation = useCallback(async () => {
+    if (!studentId) throw new Error('No active student')
+    if (activeConversationIdRef.current) return activeConversationIdRef.current
+    const res = await api.newTutorConversation(studentId, tutorId)
+    const conversation = res.conversation
+    activeConversationIdRef.current = conversation.id
+    setActiveConversationId(conversation.id)
+    upsertConversation(conversation)
+    setChats((prev) => ({ ...prev, [conversation.id]: prev[conversation.id] ?? [] }))
+    return conversation.id
+  }, [studentId, tutorId, upsertConversation])
+
   useEffect(() => {
     if (!studentId) return
     api.learning(studentId)
@@ -86,25 +165,61 @@ export function CopilotPanel() {
       .catch((e) => { console.error('[copilot] learning items failed:', e) })
   }, [studentId])
 
-  // Load the selected tutor's own conversation (cached per tutor for instant
-  // switch-back; the backend stays the source of truth).
   useEffect(() => {
-    if (!studentId) return
-    if (chats[tutorId]) return
-    api.tutorHistory(studentId, tutorId)
-      .then((rows) => setChats((c) => ({ ...c, [tutorId]: rows })))
-      .catch((e) => { console.error('[copilot] tutor history failed:', e) })
-  }, [studentId, tutorId, chats])
+    activeConversationIdRef.current = activeConversationId
+  }, [activeConversationId])
 
   useEffect(() => {
-    const onFocus = () => setOpen(true)
+    setConversations([])
+    setChats({})
+    setActiveConversationId(null)
+    activeConversationIdRef.current = null
+  }, [studentId])
+
+  useEffect(() => {
+    if (!studentId) return
+    void refreshConversations()
+  }, [studentId, refreshConversations])
+
+  useEffect(() => {
+    if (!studentId) return
+    if (activeConversationId) {
+      const active = conversations.find((c) => c.id === activeConversationId)
+      if (!active || active.tutor_id === tutorId) return
+    }
+    const next = conversations.find((c) => c.tutor_id === tutorId)
+    const nextId = next?.id ?? null
+    activeConversationIdRef.current = nextId
+    setActiveConversationId(nextId)
+  }, [studentId, tutorId, conversations, activeConversationId])
+
+  useEffect(() => {
+    if (!studentId || !activeConversationId || chats[activeConversationId]) return
+    const active = conversations.find((c) => c.id === activeConversationId)
+    api.tutorHistory(studentId, active?.tutor_id || tutorId, activeConversationId)
+      .then((rows) => setChats((c) => ({ ...c, [activeConversationId]: rows })))
+      .catch((e) => { console.error('[copilot] tutor history failed:', e) })
+  }, [studentId, tutorId, activeConversationId, conversations, chats])
+
+  useEffect(() => {
+    const onFocus = (event: Event) => {
+      setOpen(true)
+      const prompt = (event as CustomEvent<{ prompt?: string }>).detail?.prompt
+      if (typeof prompt === 'string') setInput(prompt)
+    }
     window.addEventListener('copilot:focus', onFocus)
     return () => window.removeEventListener('copilot:focus', onFocus)
   }, [])
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [chats, busy, interviewThreads, tutorId])
+    if (expanded) {
+      const region = (scrollRef.current?.querySelector('.thread, .welcome, .copilot-messages') as HTMLElement | null) ?? scrollRef.current
+      region?.scrollTo({ top: region.scrollHeight })
+    } else {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    }
+    interviewScrollRef.current?.scrollTo({ top: interviewScrollRef.current.scrollHeight })
+  }, [chats, busy, interviewThreads, activeConversationId, expanded])
 
   useEffect(() => () => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null }
@@ -112,23 +227,106 @@ export function CopilotPanel() {
     speech.stopListening()
   }, [speech.stopListening])
 
-  const messages = chats[tutorId] ?? []
+  const messages = activeConversationId ? (chats[activeConversationId] ?? []) : []
   const interviewItems = interviewThreads[tutorId] ?? []
   const interviewLocked = interview.phase === 'starting' || interview.phase === 'active'
 
   const skillName = items.find((item) => item.skill_id === copilot.skillId)?.skill_name
-  const topicName = copilot.competency || skillName || 'your current topic'
+  const topicName = copilot.competency || skillName || ''
+  const topicReal = topicName !== ''
 
   const quickActions = quickActionsFor(lang, tutorId, mode, topicName)
 
-  const localMessage = (role: 'user' | 'assistant', content: string, skillId: number | null): TutorMessage =>
-    ({ id: ++nextId.current, role, content, skill_id: skillId, tutor_id: tutorId, created_at: '' })
+  const localMessage = (role: 'user' | 'assistant', content: string, skillId: number | null, conversationId: number | null = activeConversationIdRef.current): TutorMessage =>
+    ({ id: ++nextId.current, role, content, skill_id: skillId, tutor_id: tutorId, conversation_id: conversationId, created_at: '' })
 
-  const appendChat = (tid: TutorId, msg: TutorMessage) =>
-    setChats((prev) => ({ ...prev, [tid]: [...(prev[tid] ?? []), msg] }))
+  const appendChat = (conversationId: number, msg: TutorMessage) =>
+    setChats((prev) => ({ ...prev, [conversationId]: [...(prev[conversationId] ?? []), msg] }))
 
   const appendInterview = (tid: TutorId, item: InterviewItem) =>
     setInterviewThreads((prev) => ({ ...prev, [tid]: [...(prev[tid] ?? []), item] }))
+
+  // ChatGPT-style voice session. The engine (lib/voiceSession) drives browser
+  // speech -> /tutor -> /tutor/tts with instant barge-in.
+  // Every voice reply also lands in this tutor's normal chat thread.
+  const voice = useVoiceSession({
+    studentId,
+    tutor: tutorId,
+    language: voiceLang,
+    recognitionSupported: speech.recognitionSupported,
+    skipBrowserStt: isBrave,
+    send: async (text, signal, sessionOpts) => {
+      const conversationId = await ensureChatConversation()
+      try {
+        // Phase 4D: the engine forwards the current Live mode (chat | interview)
+        // plus the spoken interview turn number. Chat mode keeps the normal
+        // tutor URL mode (`mode`) byte-for-byte; Interview mode drives the same
+        // /tutor endpoint with mode='interview' + interviewTurn.
+        // Phase 4D: Live InterENGINE mode ('interview') drives the spoken mock
+        // interview on the SAME /tutor endpoint (mode='interview'+turn). Live
+        // Conversation keeps the normal panel mode for the tutor reply framing —
+        // except an in-chat Mock Interview's 'interview' (a separate flow) is
+        // never inherited; Live Conversation is always a chat-style turn.
+        const liveMode = sessionOpts?.mode === 'interview' ? 'interview' : (mode === 'interview' ? 'chat' : mode)
+        const res = await api.tutorSendAbortable(studentId, text, {
+          skillId: copilot.skillId,
+          page: copilot.page,
+          competency: copilot.competency,
+          jobTitle: copilot.jobTitle,
+          jobUrl: copilot.jobUrl,
+          tutorId,
+          mode: liveMode,
+          // Explicit Live speech language: the engine always passes the current
+          // selection (or a mid-session switch), never an Auto preference, so
+          // the mentor replies (and speaks) in the user's chosen language.
+          language: sessionOpts?.language ?? voiceLang,
+          conversationId,
+          spoken: true,
+          // Phase 4D spoken-interview turn number (1-based probe counter).
+          turn: liveMode === 'interview' && sessionOpts?.interviewTurn ? sessionOpts.interviewTurn : null,
+        }, signal)
+        upsertConversation(res.conversation)
+        return res.reply ?? res.content ?? ''
+      } catch (err) {
+        // Keep the engine's own error handling; surface only safe diagnostics.
+        console.info('[voice-live] tutor.http_error', {
+          mentor: tutorId,
+          status: (err as { status?: number })?.status ?? null,
+          kind: (err as { name?: string })?.name ?? 'Error',
+        })
+        throw err
+      }
+    },
+    interviewSummary: async (signal, sessionOpts) => {
+      const conversationId = await ensureChatConversation()
+      const res = await api.tutorInterviewSummary(studentId, {
+        language: sessionOpts?.language ?? voiceLang,
+        conversationId,
+      }, signal)
+      return res.summary ?? ''
+    },
+    onAssistantReply: (replyText) => {
+      if (!replyText) return
+      const conversationId = activeConversationIdRef.current
+      if (!conversationId) return
+      appendChat(conversationId, { id: ++nextId.current, role: 'assistant', content: replyText, skill_id: copilot.skillId, tutor_id: tutorId, conversation_id: conversationId, created_at: '' })
+    },
+    onUserMessage: (text) => {
+      const conversationId = activeConversationIdRef.current
+      if (!conversationId) return
+      appendChat(conversationId, localMessage('user', text, copilot.skillId, conversationId))
+    },
+  })
+  const voiceRef = useRef(voice)
+  voiceRef.current = voice
+
+  // An active Verified assessment pauses the tutor — voice mode closes with it.
+  useEffect(() => {
+    if (assessmentActive || !studentId) {
+      setVoiceOpen(false)
+      voiceRef.current.close()
+    }
+  }, [assessmentActive, studentId])
 
   const stopSpeak = () => {
     audioRequestRef.current += 1
@@ -137,6 +335,16 @@ export function CopilotPanel() {
     setSpeakingKey(null)
     setSpeakBusy(false)
     setVoiceNote('')
+  }
+
+  const copyMessage = (key: string, text: string) => {
+    if (!navigator.clipboard || !text) return
+    void navigator.clipboard.writeText(text)
+      .then(() => {
+        setCopiedKey(key)
+        window.setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1600)
+      })
+      .catch(() => { /* clipboard unavailable — nothing to recover */ })
   }
 
   const toggleSpeak = async (key: string, text: string, surface: 'chat' | 'interview' = 'chat') => {
@@ -207,9 +415,12 @@ export function CopilotPanel() {
     const text = (preset ?? input).trim()
     if (!text || busy || assessmentActive || !studentId) return
     setInput('')
-    appendChat(tutorId, localMessage('user', text, copilot.skillId))
+    setToolsOpen(false)
     setBusy(true)
+    let conversationId: number | null = null
     try {
+      conversationId = await ensureChatConversation()
+      appendChat(conversationId, localMessage('user', text, copilot.skillId, conversationId))
       const res = await api.tutorSend(studentId, text, {
         skillId: copilot.skillId,
         page: copilot.page,
@@ -219,27 +430,108 @@ export function CopilotPanel() {
         tutorId,
         mode,
         language,
+        conversationId,
       })
       setLastReply(res.language === 'ar' ? 'ar' : 'en')
       const replyText = res.reply ?? res.content
-      appendChat(tutorId, { id: res.id, role: 'assistant', content: replyText, skill_id: res.skill_id ?? copilot.skillId, tutor_id: tutorId, created_at: res.created_at })
+      const resolvedConversationId = res.conversation_id ?? conversationId
+      activeConversationIdRef.current = resolvedConversationId
+      setActiveConversationId(resolvedConversationId)
+      upsertConversation(res.conversation)
+      appendChat(resolvedConversationId, { id: res.id, role: 'assistant', content: replyText, skill_id: res.skill_id ?? copilot.skillId, tutor_id: res.tutor_id ?? tutorId, conversation_id: resolvedConversationId, created_at: res.created_at })
+      void refreshConversations()
     } catch (err) {
       const detail = (err as Error)?.message?.trim()
-      appendChat(tutorId, localMessage('assistant', detail && !detail.startsWith('Request failed') ? detail : '(Tutor unavailable — is the backend running?)', copilot.skillId))
+      if (conversationId) {
+        appendChat(conversationId, localMessage('assistant', detail && !detail.startsWith('Request failed') ? detail : '(Tutor unavailable - is the backend running?)', copilot.skillId, conversationId))
+      } else {
+        setVoiceNote(detail && !detail.startsWith('Request failed') ? detail : 'Tutor unavailable - is the backend running?')
+      }
     } finally {
       setBusy(false)
     }
   }
 
+  const rateMessage = (message: TutorMessage, rating: ResponseRating) => {
+    const key = `m-${message.id}`
+    setRatings((prev) => ({ ...prev, [key]: prev[key] === rating ? null : rating }))
+  }
+
+  const shareMessage = async (message: TutorMessage) => {
+    if (typeof navigator === 'undefined' || !('share' in navigator) || !message.content.trim()) return
+    try {
+      await navigator.share({ text: message.content })
+    } catch {
+      // User cancelled the native share sheet (AbortError) or sharing failed —
+      // nothing to recover, keep the message untouched.
+    }
+  }
+
+  const regenerate = async (message: TutorMessage) => {
+    if (!studentId || busy || assessmentActive || interviewLocked) return
+    const conversationId = activeConversationIdRef.current
+    if (!conversationId) return
+    const thread = chats[conversationId] ?? []
+    const index = thread.findIndex((m) => m.id === message.id)
+    if (index < 1 || thread[index].role !== 'assistant' || thread[index - 1].role !== 'user') return
+    const userText = thread[index - 1].content
+    const retrying = `m-${message.id}`
+    setRetryingKey(retrying)
+    setBusy(true)
+    try {
+      const res = await api.tutorSend(studentId, userText, {
+        skillId: copilot.skillId,
+        page: copilot.page,
+        competency: copilot.competency,
+        jobTitle: copilot.jobTitle,
+        jobUrl: copilot.jobUrl,
+        tutorId,
+        mode,
+        language,
+        conversationId,
+      })
+      setLastReply(res.language === 'ar' ? 'ar' : 'en')
+      const replyText = res.reply ?? res.content
+      const resolvedConversationId = res.conversation_id ?? conversationId
+      activeConversationIdRef.current = resolvedConversationId
+      setActiveConversationId(resolvedConversationId)
+      upsertConversation(res.conversation)
+      setChats((prev) => {
+        const arr = [...(prev[resolvedConversationId] ?? [])]
+        const i = arr.findIndex((m) => m.id === message.id)
+        if (i >= 0) {
+          arr[i] = { id: res.id, role: 'assistant', content: replyText, skill_id: res.skill_id ?? copilot.skillId, tutor_id: res.tutor_id ?? tutorId, conversation_id: resolvedConversationId, created_at: res.created_at }
+        }
+        return { ...prev, [resolvedConversationId]: arr }
+      })
+      void refreshConversations()
+    } catch (err) {
+      const detail = (err as Error)?.message?.trim()
+      const fallback = '(Tutor unavailable - is the backend running?)'
+      setChats((prev) => {
+        const arr = [...(prev[conversationId] ?? [])]
+        const i = arr.findIndex((m) => m.id === message.id)
+        if (i >= 0) {
+          arr[i] = { ...arr[i], content: detail && !detail.startsWith('Request failed') ? detail : fallback }
+        }
+        return { ...prev, [conversationId!]: arr }
+      })
+    } finally {
+      setRetryingKey(null)
+      setBusy(false)
+    }
+  }
   const contextTitle = PAGE_LABELS[copilot.page] || 'Your learning'
   const barSubtitle = assessmentActive
     ? ui.lockedTitle
-    : `${tutor.origin} · ${tutor.specialty}`
+    : `${ui.tutorRole[tutor.id]} · ${ui.ready}`
 
   const beginInterview = async () => {
     if (busy || assessmentActive || !studentId) return
     setInterviewError('')
-    setConfirmAction(null)
+    setClearModalOpen(false)
+    setHistoryOpen(false)
+    setToolsOpen(false)
     setAboutOpen(false)
     setInterviewInput('')
     setTypedFallbackOpen(false)
@@ -332,18 +624,50 @@ export function CopilotPanel() {
     setMode(prevModeRef.current === 'interview' ? 'chat' : prevModeRef.current)
     setExpanded(false)
     setAboutOpen(false)
-    setConfirmAction(null)
+    setClearModalOpen(false)
     resetInterview()
+  }
+
+  const startNewChat = async () => {
+    if (!studentId || busy || interviewLocked) return
+    setAboutOpen(false)
+    setClearModalOpen(false)
+    setHistoryOpen(false)
+    setToolsOpen(false)
+    setInput('')
+    if (activeConversationId && messages.length === 0) return
+    setBusy(true)
+    try {
+      const res = await api.newTutorConversation(studentId, tutorId)
+      activeConversationIdRef.current = res.conversation.id
+      setActiveConversationId(res.conversation.id)
+      upsertConversation(res.conversation)
+      setChats((prev) => ({ ...prev, [res.conversation.id]: [] }))
+      setLastReply(null)
+    } catch (e) {
+      console.error('[copilot] new conversation failed:', e)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const clearCurrentConversation = async () => {
     if (!studentId || busy || interviewLocked) return
+    const conversationId = activeConversationIdRef.current
+    if (!conversationId) {
+      setClearModalOpen(false)
+      return
+    }
     setAboutOpen(false)
-    setConfirmAction(null)
+    setClearModalOpen(false)
+    setToolsOpen(false)
     try {
-      await api.clearTutorChat(studentId, tutorId)
+      await api.clearTutorChat(studentId, tutorId, conversationId)
     } catch (e) { console.error('[copilot] clear chat failed:', e) }
-    setChats((c) => ({ ...c, [tutorId]: [] }))
+    setChats((c) => ({ ...c, [conversationId]: [] }))
+    setConversations((prev) => prev.map((c) => c.id === conversationId
+      ? { ...c, title: 'New conversation', message_count: 0, preview: '', last_message_at: null, updated_at: new Date().toISOString() }
+      : c))
     setInterviewThreads((t) => ({ ...t, [tutorId]: [] }))
     setInput('')
     setInterviewInput('')
@@ -355,11 +679,32 @@ export function CopilotPanel() {
     resetInterview()
   }
 
-  const cancelConfirm = () => setConfirmAction(null)
+  const selectConversation = (conversation: TutorConversation) => {
+    if (busy || interviewLocked) return
+    activeConversationIdRef.current = conversation.id
+    setActiveConversationId(conversation.id)
+    setHistoryOpen(false)
+    setToolsOpen(false)
+    setAboutOpen(false)
+    if (conversation.tutor_id !== tutorId) setTutorId(conversation.tutor_id as TutorId)
+    if (!chats[conversation.id]) {
+      api.tutorHistory(studentId, conversation.tutor_id, conversation.id)
+        .then((rows) => setChats((prev) => ({ ...prev, [conversation.id]: rows })))
+        .catch((e) => { console.error('[copilot] conversation restore failed:', e) })
+    }
+  }
+
+  useEffect(() => {
+    if (!clearModalOpen) return
+    clearCancelRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setClearModalOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [clearModalOpen])
 
   const interviewRunning = mode === 'interview' && interview.phase !== 'idle'
-  // Every avatar offers a Mock Interview as its primary action when idle.
-  const interviewCtaVisible = interview.phase === 'idle'
   const activeInterviewListening = speech.listening && micTarget === 'interview'
   const interviewTextFallbackAvailable = !speech.recognitionSupported || (micTarget === 'interview' && !!speech.error) || typedFallbackOpen
   const interviewPrimaryDisabled = assessmentActive || busy || !studentId || interview.phase !== 'active' ||
@@ -414,28 +759,117 @@ export function CopilotPanel() {
     })
   }
 
-  // One shared browser-speech hook for BOTH surfaces. Normal chat keeps its
-  // review-then-Send composer; Mock Interview sends the final speech transcript
-  // automatically through the turn-taking flow above.
+  // One shared browser-speech hook for BOTH surfaces. Normal chat uses the mic
+  // purely as speech-to-text dictation that types the transcript into the
+  // composer (review, then hit Send). Live/voice chat (the wave button) opens
+  // the VoiceMode orb separately. Mock Interview keeps its own automatic
+  // submit-through-turn-taking flow.
+  const stopChatDictation = () => {
+    if (dictatingRef.current) {
+      dictatingRef.current = false
+      speech.stopListening()
+    }
+  }
+
+  const startChatDictation = () => {
+    if (assessmentActive || busy || !studentId) return
+    if (dictatingRef.current || (speech.listening && micTarget === 'chat')) {
+      stopChatDictation()
+      return
+    }
+    if (!speech.recognitionSupported) { setVoiceNote(ui.voiceUnsupported); return }
+    setVoiceNote('')
+    dictatingRef.current = true
+    dictBaseRef.current = input
+    speech.startListening((text) => {
+      const base = dictBaseRef.current.trim()
+      const merged = `${base}${base && text ? ' ' : ''}${text}`
+      dictatingRef.current = false
+      setInput(merged)
+    }, lang, () => {
+      dictatingRef.current = false
+    })
+  }
+
   const toggleMic = (target: 'chat' | 'interview' = 'chat') => {
     if (target === 'interview') {
       toggleInterviewMic()
       return
     }
-    setMicTarget(target)
-    if (speech.listening) { speech.stopListening(); return }
-    speech.startListening((text) => setInput((prev) => (prev ? `${prev} ${text}` : text)), lang)
+    setMicTarget('chat')
+    startChatDictation()
   }
 
+  const startLiveVoice = () => {
+    if (assessmentActive || busy || !studentId) return
+    if (!speech.recognitionSupported) { setVoiceNote(ui.voiceUnsupported); return }
+    stopChatDictation()
+    setVoiceNote('')
+    // Explicit Live language: an already-explicit chat preference (English /
+    // Arabic) opens Live in that language; an Auto chat preference is NEVER
+    // silently treated as English — we use the last explicitly selected Live
+    // language if one was saved, else a clear deterministic default (English),
+    // and the visible EN | عربي control in the surface stays obvious.
+    setVoiceLang(resolveInitialLiveLang(language))
+    void ensureChatConversation()
+      .then(() => setVoiceOpen(true))
+      .catch((e) => {
+        console.error('[copilot] voice conversation failed:', e)
+        setVoiceNote('Voice chat could not start.')
+      })
+  }
+
+  // Live-dictate the browser's interim transcript into the composer textarea
+  // (pure speech-to-text; the orb is only for the separate Live button).
+  useEffect(() => {
+    if (!dictatingRef.current || micTarget !== 'chat') return
+    const interim = speech.interimTranscript
+    if (interim) {
+      const base = dictBaseRef.current.trim()
+      setInput(`${base}${base ? ' ' : ''}${interim}`)
+    }
+  }, [speech.interimTranscript, micTarget])
+
+  const visibleConversations = conversations.filter((c) =>
+    (c.message_count ?? 0) > 0 || c.id === activeConversationId)
+  const toolActions = [
+    {
+      key: 'practice',
+      label: ui.practiceAction,
+      icon: <IconBook size={15} />,
+      action: () => void send(undefined, `Give me a practical exercise for ${topicName}.`),
+    },
+    {
+      key: 'quiz',
+      label: ui.quizMeAction,
+      icon: <IconClipboard size={15} />,
+      action: () => void send(undefined, `Quiz me on ${topicName}.`),
+    },
+    {
+      key: 'interview',
+      label: ui.mockInterviewAction,
+      icon: <IconHeadset size={15} />,
+      action: () => void beginInterview(),
+    },
+    {
+      key: 'explain',
+      label: ui.explainTopicAction,
+      icon: <IconLightbulb size={15} />,
+      action: () => void send(undefined, `Explain ${topicName} simply and step by step.`),
+    },
+  ]
+
   return (
-    <div className={`copilot-panel ${tutor.theme} ${open ? 'copilot-open' : 'copilot-closed'} ${expanded ? 'copilot-expanded' : ''}`}>
+    <div className={`copilot-panel ${tutor.theme} ${open ? 'copilot-open' : 'copilot-closed'} ${expanded ? 'copilot-expanded' : ''} ${historyOpen ? 'history-open' : ''}`}>
       <div className="copilot-bar">
         <button className="copilot-bar-main" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="AI Tutor panel">
           <img className="copilot-avatar" src={tutor.avatar} alt={tutor.name} />
-          <span className="copilot-bar-copy">
-            <strong>{tutor.name} · {ui.copilotBar}</strong>
-            <small>{barSubtitle}</small>
-          </span>
+          {!open && (
+            <span className="copilot-bar-copy">
+              <strong>{tutor.name} · {ui.copilotBar}</strong>
+              <small>{barSubtitle}</small>
+            </span>
+          )}
           <IconChevron size={16} className={`copilot-chev ${open ? 'open' : ''}`} />
         </button>
         <button
@@ -450,83 +884,124 @@ export function CopilotPanel() {
       </div>
 
       {open && (
-        <div className="copilot-body" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
-          <div className="copilot-context">
-            <IconChat size={13} /> {ui.talkingAbout} <strong>{topicName}</strong> — {contextTitle}
-          </div>
-
-          <div className="copilot-toolbar">
-            <div className="copilot-lang" role="group" aria-label={ui.languages}>
-              {TUTOR_LANGUAGES.map((l) => (
+        <div className="copilot-body copilot-v2" ref={scrollRef} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+          <div className="copilot-top">
+            <div className="copilot-header chat-header-compact">
+              <div className="chat-header-main">
                 <button
-                  key={l}
                   type="button"
-                  className={`copilot-lang-opt ${language === l ? 'selected' : ''}`}
-                  disabled={assessmentActive || interviewLocked}
-                  onClick={() => setLanguage(l)}
-                  aria-pressed={language === l}
-                  title={LANGUAGE_LABELS[l]}
+                  className={`history-toggle ${historyOpen ? 'active' : ''}`}
+                  onClick={() => { setHistoryOpen((h) => !h); setToolsOpen(false); setAboutOpen(false) }}
+                  aria-label={ui.historyAria}
+                  aria-expanded={historyOpen}
+                  title={ui.history}
                 >
-                  {LANGUAGE_SHORT[l]}
+                  <IconClock size={18} />
                 </button>
-              ))}
+                <div className="mentor-identity">
+                  <span className="persona-avatar copilot-current-avatar"><img src={tutor.avatar} alt={tutor.name} /></span>
+                  <div className="persona-info">
+                    <div className="persona-title-row">
+                      <h1>{tutor.name}</h1>
+                      <span className="online-status"><span className="online-dot" />{ui.ready}</span>
+                    </div>
+                    <p>{ui.tutorRole[tutor.id]}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="header-actions">
+                <div className="mentor-change" tabIndex={0} aria-haspopup="menu" aria-label={ui.chooseCopilot}>
+                  <button
+                    type="button"
+                    className="mentor-change-button"
+                    disabled={assessmentActive || interviewLocked}
+                    aria-label={ui.changeMentor}
+                  >
+                    {ui.changeMentor}
+                    <IconChevron size={14} />
+                  </button>
+                  <PersonaMenu ui={ui} locked={assessmentActive || interviewLocked} />
+                </div>
+                <div className="lang" role="group" aria-label={ui.languages}>
+                  {TUTOR_LANGUAGES.map((l) => (
+                    <button
+                      key={l}
+                      type="button"
+                      className={language === l ? 'active' : ''}
+                      disabled={assessmentActive || interviewLocked}
+                      onClick={() => setLanguage(l)}
+                      aria-pressed={language === l}
+                      title={LANGUAGE_LABELS[l]}
+                    >
+                      {LANGUAGE_SHORT[l]}
+                    </button>
+                  ))}
+                </div>
+                <div className="more-wrap" tabIndex={0}>
+                  <button type="button" className="more-button" aria-label={ui.moreOptions} aria-haspopup="menu" title={ui.moreOptions}>
+                    <IconDots size={18} />
+                  </button>
+                  <MoreMenu
+                    ui={ui}
+                    tutorName={tutor.name}
+                    disabled={busy || interviewLocked || !studentId}
+                    onNewChat={() => void startNewChat()}
+                    onClearChat={() => setClearModalOpen(true)}
+                    onProfile={() => { setAboutOpen((o) => !o); setHistoryOpen(false); setToolsOpen(false) }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {historyOpen && (
+              <div className="history-drawer" role="dialog" aria-label={ui.chatHistory}>
+                <div className="history-head">
+                  <strong>{ui.chatHistory}</strong>
+                  <button type="button" onClick={() => void startNewChat()} disabled={busy || interviewLocked || !studentId} aria-label={ui.newChatChip}>
+                    <IconPlus size={15} />
+                  </button>
+                </div>
+                {visibleConversations.length === 0 ? (
+                  <div className="history-empty">{ui.emptyHistory}</div>
+                ) : (
+                  <div className="history-list">
+                    {visibleConversations.map((conversation) => {
+                      const profile = TUTOR_PROFILES.find((p) => p.id === conversation.tutor_id) || TUTOR_PROFILES[0]
+                      const active = conversation.id === activeConversationId
+                      const stamp = conversationStamp(conversation.last_message_at || conversation.updated_at)
+                      return (
+                        <button
+                          key={conversation.id}
+                          type="button"
+                          className={`history-row ${active ? 'active' : ''}`}
+                          onClick={() => selectConversation(conversation)}
+                          disabled={busy || interviewLocked}
+                        >
+                          <span className="history-avatar"><img src={profile.avatar} alt={profile.name} /></span>
+                          <span className="history-copy">
+                            <strong>{conversation.title || ui.currentConversation}</strong>
+                            <small>{profile.name}{stamp ? ` / ${stamp}` : ''}</small>
+                          </span>
+                          {active && <span className="history-current">{ui.currentConversation}</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="copilot-context">
+              {topicReal && (
+                <>
+                  <span className="context-item"><IconShield size={12} /> {ui.talkingAbout} <strong>{topicName}</strong></span>
+                  <span className="context-divider" />
+                </>
+              )}
+              <span className="context-item muted">{contextTitle}</span>
             </div>
           </div>
-
-          <div className="copilot-tutors">
-            <TutorSelector selected={tutorId} onSelect={setTutorId} compact disabled={interviewLocked} />
-            <div className="copilot-current">
-              <strong>{tutor.name}</strong>
-              <small>{tutor.origin} · {tutor.specialty}</small>
-              <small className="copilot-current-traits">{tutor.traits.slice(0, 3).join(' · ')}</small>
-            </div>
-          </div>
-
-          <div className="copilot-actions">
-            <button
-              type="button"
-              className="copilot-about-toggle"
-              onClick={() => setAboutOpen((o) => !o)}
-              aria-expanded={aboutOpen}
-              aria-label={ui.profileToggle(aboutOpen, tutor.name)}
-            >
-              <IconTutor size={13} /> {ui.profile}
-            </button>
-            <button
-              type="button"
-              className="copilot-new-chat"
-              onClick={() => setConfirmAction('newchat')}
-              disabled={busy || interviewLocked || !studentId}
-              title={ui.newChat}
-            >
-              <IconPlus size={13} /> {ui.newChat}
-            </button>
-            <button
-              type="button"
-              className="copilot-clear-chat"
-              onClick={() => setConfirmAction('clear')}
-              disabled={busy || interviewLocked || !studentId}
-              title={ui.clearChat}
-            >
-              <IconTrash size={13} /> {ui.clearChat}
-            </button>
-          </div>
-
-          {confirmAction && (
-            <div className="copilot-confirm" role="alertdialog" aria-label={ui.clearChatConfirm.replace('{name}', tutor.name)}>
-              <span className="copilot-confirm-copy">
-                {confirmAction === 'clear'
-                  ? ui.clearChatConfirm.replace('{name}', tutor.name)
-                  : ui.newChatConfirm.replace('{name}', tutor.name)}
-              </span>
-              <span className="copilot-confirm-actions">
-                <button type="button" className="btn btn-sm" onClick={cancelConfirm} disabled={busy}>{ui.cancel}</button>
-                <button type="button" className="btn btn-sm copilot-confirm-clear" onClick={() => void clearCurrentConversation()} disabled={busy}>
-                  {ui.clear}
-                </button>
-              </span>
-            </div>
-          )}
 
           {interviewLocked && (
             <div className="copilot-pin-note" title={ui.pinnedTitle}>
@@ -552,24 +1027,9 @@ export function CopilotPanel() {
             </div>
           ) : (
             <>
-              {interviewCtaVisible && (
-                <div className="copilot-interview-hero">
-                  <div className="copilot-interview-hero-copy">
-                    <strong>{ui.mockInterviewTitle}</strong>
-                    <span>{ui.mockInterviewDesc} {topicName} {ui.forYourRole}</span>
-                  </div>
-                  {interviewError && <div className="copilot-interview-error">{interviewError}</div>}
-                  <div className="copilot-interview-hero-actions">
-                    <button className="btn btn-primary copilot-interview-start" disabled={busy} onClick={() => void beginInterview()}>
-                      <IconMic size={14} /> {ui.startMockInterview}
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {interviewRunning ? (
                 <>
-                  <div className="tutor-messages copilot-messages" ref={scrollRef}>
+                  <div className="tutor-messages copilot-messages" ref={interviewScrollRef}>
                     {interview.phase === 'starting' && (
                       <div className="msg assistant" dir={messageDir(ui.startingInterview)}>
                         <div className="md-body"><em>{ui.startingInterview}</em></div>
@@ -592,6 +1052,18 @@ export function CopilotPanel() {
                             aria-label={ui.voiceAria}
                           >
                             {speakingKey === `i-${item.id}` ? <IconStop size={13} /> : <IconVolume size={13} />}
+                          </button>
+                        )}
+                        {(item.kind === 'question' || item.kind === 'feedback') && (
+                          <button
+                            type="button"
+                            className="copilot-msg-copy"
+                            onClick={() => copyMessage(`i-${item.id}`, item.text)}
+                            disabled={assessmentActive || !studentId}
+                            aria-label={ui.copyAria}
+                            title={ui.copyAria}
+                          >
+                            {copiedKey === `i-${item.id}` ? <IconCheck size={13} /> : <IconCopy size={13} />}
                           </button>
                         )}
                       </div>
@@ -662,7 +1134,7 @@ export function CopilotPanel() {
                             aria-label={ui.submitTypedAnswer}
                           />
                           <button type="submit" className="btn btn-primary" disabled={busy || !interviewInput.trim() || !studentId} aria-label={ui.submitTypedAnswer}>
-                            {lang === 'ar' ? <IconSendRTL size={15} /> : <IconSend size={15} />}
+                            <IconSendUp size={18} />
                           </button>
                         </form>
                       )}
@@ -688,65 +1160,122 @@ export function CopilotPanel() {
                 </>
               ) : (
                 <>
-                  <div className="tutor-messages copilot-messages" ref={scrollRef}>
-                    {messages.length === 0 && (
-                      <div className="msg assistant" dir={messageDir(greetingText)}>
-                        <div className="md-body">
-                          {greetingText}
-                        </div>
+                  {messages.length === 0 ? (
+                    <section className="welcome">
+                      <div className="welcome-symbol"><span className="symbol-core"><IconSparkles size={20} /></span></div>
+                      <h2>{ui.welcomeTitle}</h2>
+                      <p>{ui.welcomeBody}</p>
+                      <SuggestionGrid ui={ui} onPick={(prompt) => void send(undefined, prompt)} />
+                      <div className="welcome-greet">
+                        <span className="wg-avatar"><img src={tutor.avatar} alt={tutor.name} /></span>
+                        <span className="wg-copy">{greetingText}</span>
                       </div>
-                    )}
-                    {messages.map((message) => (
-                      <div key={message.id} className={`msg ${message.role}`} dir={messageDir(message.content)}>
-                        <div className="md-body">
-                          {message.role === 'assistant' ? <SafeMarkdown>{message.content}</SafeMarkdown> : message.content}
-                        </div>
-                        {message.role === 'assistant' && (
+                    </section>
+                  ) : (
+                    <ChatThread
+                      messages={messages}
+                      busy={busy}
+                      tutor={tutor}
+                      ui={ui}
+                      speakingKey={speakingKey}
+                      copiedKey={copiedKey}
+                      speakDisabled={assessmentActive || speakBusy || !studentId}
+                      audioDisabled={assessmentActive || !studentId}
+                      onSpeak={(message) => void toggleSpeak(`m-${message.id}`, message.content)}
+                      onCopy={(message) => copyMessage(`m-${message.id}`, message.content)}
+                      ratings={ratings}
+                      retryingKey={retryingKey}
+                      shareDisabled={shareDisabled}
+                      onRate={rateMessage}
+                      onShare={(message) => void shareMessage(message)}
+                      onRetry={(message) => void regenerate(message)}
+                      chips={quickActions}
+                      onChip={(prompt) => void send(undefined, prompt)}
+                    />
+                  )}
+
+                  {interviewError && !aboutOpen && (
+                    <div className="copilot-interview-error">{interviewError}</div>
+                  )}
+
+                  {!aboutOpen && (
+                    <Composer
+                      footer={<>
+                        <span>{ui.composerFooter1.replace('{name}', tutor.name)}</span>
+                        <span className="cf-dot" aria-hidden="true" />
+                        <span>{ui.composerFooter2}</span>
+                      </>}
+                    >
+                      <div className="composer">
+                        <form className="tutor-input copilot-input" onSubmit={(e) => void send(e)}>
+                          <textarea
+                          rows={1}
+                          value={input}
+                          onChange={(e) => setInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+                          placeholder={ui.askPlaceholder.replace('{name}', tutor.name)}
+                          dir="auto"
+                          aria-label={ui.sendAria}
+                        />
+                        <div className="composer-actions">
+                          <div className="composer-tools-wrap">
+                            <button
+                              type="button"
+                              className={`composer-attach ${toolsOpen ? 'active' : ''}`}
+                              onClick={() => { setToolsOpen((o) => !o); setHistoryOpen(false) }}
+                              aria-label={ui.toolsAria}
+                              aria-expanded={toolsOpen}
+                              title={ui.toolsAria}
+                              disabled={assessmentActive || busy || !studentId}
+                            >
+                              <IconPlus size={18} />
+                            </button>
+                            {toolsOpen && (
+                              <div className="composer-tools-menu" role="menu" aria-label={ui.toolsMenu}>
+                                {toolActions.map((action) => (
+                                  <button
+                                    key={action.key}
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={action.action}
+                                    disabled={assessmentActive || busy || !studentId}
+                                  >
+                                    {action.icon}
+                                    <span>{action.label}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                           <button
                             type="button"
-                            className="copilot-msg-voice"
-                            onClick={() => void toggleSpeak(`m-${message.id}`, message.content)}
-                            disabled={assessmentActive || speakBusy || !studentId}
-                            aria-label={ui.voiceAria}
+                            className="composer-live copilot-live"
+                            onClick={startLiveVoice}
+                            aria-label={ui.liveAria.replace('{name}', tutor.name)}
+                            title={ui.liveAria.replace('{name}', tutor.name)}
+                            disabled={assessmentActive || busy || !studentId}
                           >
-                            {speakingKey === `m-${message.id}` ? <IconStop size={13} /> : <IconVolume size={13} />}
+                            <IconWaveform size={18} />
                           </button>
-                        )}
+                          <button
+                            type="button"
+                            className="composer-mic copilot-mic"
+                            onClick={() => toggleMic('chat')}
+                            aria-label={speech.listening && micTarget === 'chat' ? ui.micListeningAria : ui.micAria}
+                            title={speech.listening && micTarget === 'chat' ? ui.micListeningAria : ui.micAria}
+                            disabled={assessmentActive || busy || !studentId}
+                          >
+                            {speech.listening && micTarget === 'chat' ? <IconStop size={18} /> : <IconMic size={18} />}
+                          </button>
+                          <button type="submit" className="composer-send" disabled={busy || !input.trim() || !studentId} aria-label={ui.sendAria} title={ui.sendAria}>
+                            <IconSendUp size={18} />
+                          </button>
+                        </div>
+                      </form>
                       </div>
-                    ))}
-                    {busy && <div className="msg assistant">...</div>}
-                  </div>
+                    </Composer>
+                  )}
 
-                  <div className="copilot-quickactions">
-                    {quickActions.map((action) => (
-                      <button key={action.label} className="quick-action" disabled={busy} onClick={() => void send(undefined, action.prompt)}>
-                        {action.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <form className="tutor-input copilot-input" onSubmit={(e) => void send(e)}>
-                    <input
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      placeholder={ui.askPlaceholder.replace('{name}', tutor.name)}
-                      dir="auto"
-                      aria-label={ui.sendAria}
-                    />
-                    <button
-                      type="button"
-                      className="copilot-mic"
-                      onClick={() => toggleMic('chat')}
-                      aria-label={speech.listening && micTarget === 'chat' ? ui.micListeningAria : ui.micAria}
-                      title={speech.listening && micTarget === 'chat' ? ui.micListeningAria : ui.micAria}
-                      disabled={assessmentActive || busy || !studentId}
-                    >
-                      {speech.listening && micTarget === 'chat' ? <IconStop size={15} /> : <IconMic size={15} />}
-                    </button>
-                    <button type="submit" className="btn btn-primary" disabled={busy || !input.trim() || !studentId} aria-label={ui.sendAria}>
-                      {lang === 'ar' ? <IconSendRTL size={15} /> : <IconSend size={15} />}
-                    </button>
-                  </form>
                   {(speech.listening || speech.error) && micTarget === 'chat' && (
                     <div className="copilot-mic-note">
                       {speech.listening ? (speech.interimTranscript || ui.micListeningAria) : speech.error}
@@ -756,6 +1285,34 @@ export function CopilotPanel() {
                 </>
               )}
             </>
+          )}
+
+          {clearModalOpen && (
+            <div className="chat-modal-backdrop" role="presentation" onMouseDown={() => setClearModalOpen(false)}>
+              <div
+                className="chat-clear-modal"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="chat-clear-title"
+                aria-describedby="chat-clear-body"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <h2 id="chat-clear-title">{ui.clearChatTitle}</h2>
+                <p id="chat-clear-body">{ui.clearChatConfirm.replace('{name}', tutor.name)}</p>
+                <div className="chat-clear-actions">
+                  <button ref={clearCancelRef} type="button" className="btn" onClick={() => setClearModalOpen(false)} disabled={busy}>
+                    {ui.cancel}
+                  </button>
+                  <button type="button" className="btn btn-primary chat-clear-danger" onClick={() => void clearCurrentConversation()} disabled={busy || !activeConversationId}>
+                    {ui.clear}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {voiceOpen && (
+            <VoiceMode voice={voice} tutor={tutor} lang={lang} ui={ui} studentId={studentId} onClose={() => setVoiceOpen(false)} />
           )}
         </div>
       )}

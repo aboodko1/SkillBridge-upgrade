@@ -3,9 +3,13 @@ import Markdown from 'react-markdown'
 import { useApp } from '../AppContext'
 import { api } from '../lib/api'
 import { humanizeTopicLabel } from '../lib/topicLabels'
-import type { ActivitySummary, Analysis, CareerRoadmap, DiagnosticQuestion, DiagnosticResult, 
-GeneratedDiagnostic, FinalAssessmentStatus, LearningItem, LearningResource, Lesson, LessonPractice, PersonalizedPath, PersonalizedPathItem, PersonalizedPathResponse, PracticeAttempt, ScenarioLibrary, ScenarioCard, SkillGap, 
-TopicResult } from '../lib/types'
+import type {
+  ActivitySummary, Analysis, CareerRoadmap, DiagnosticQuestion, DiagnosticResult,
+  GeneratedDiagnostic, FinalAssessmentStatus, LearningAgentActionType, LearningAgentDecision,
+  LearningItem, LearningResource, Lesson, LessonPractice, PersonalizedPath, PersonalizedPathItem,
+  PersonalizedPathResponse, PracticeAttempt, ScenarioLibrary, ScenarioCard, SkillGap, Student,
+  TopicResult,
+} from '../lib/types'
 import {
   CareerProgress,
   ContinueLearningCard,
@@ -21,7 +25,7 @@ import {
   topicProgressFor,
   type LearningTab,
 } from '../components/learning'
-import { IconArrowRight, IconAssessment, IconBack, IconBolt, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconExternal, IconLock, IconRoadmap, IconShield, IconTarget } from '../components/Icons'
+import { IconAlert, IconArrowRight, IconAssessment, IconBack, IconBolt, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconExternal, IconLock, IconRoadmap, IconShield, IconTarget } from '../components/Icons'
 
 function SafeMarkdown({ children }: { children: React.ReactNode }) {
   return <Markdown>{String(children ?? '')}</Markdown>
@@ -65,6 +69,235 @@ function categoryToneFor(category: string) {
   return 'slate'
 }
 
+// ------------------------------------------------------------------ agentic learning
+//
+// Phase 3: the learning agent recommends; it never grades, completes a topic or
+// verifies a skill. The language control is persistent (localStorage) so a
+// student who chose Egyptian Arabic keeps it across visits and pages.
+
+const LEARNING_LANGUAGE_KEY = 'sb_learning_language'
+type LearningLanguage = 'en' | 'ar'
+
+function useLearningLanguage(): [LearningLanguage, (next: LearningLanguage) => void] {
+  const [language, setLanguage] = useState<LearningLanguage>(() => {
+    try {
+      return localStorage.getItem(LEARNING_LANGUAGE_KEY) === 'ar' ? 'ar' : 'en'
+    } catch {
+      return 'en'
+    }
+  })
+  const update = useCallback((next: LearningLanguage) => {
+    setLanguage(next)
+    try { localStorage.setItem(LEARNING_LANGUAGE_KEY, next) } catch { /* storage may be unavailable */ }
+  }, [])
+  return [language, update]
+}
+
+type LessonTab = 'learn' | 'example' | 'practice' | 'discuss' | 'mini_check'
+
+const AGENT_ACTION_TABS: Record<LearningAgentActionType, LessonTab> = {
+  EXPLAIN: 'learn',
+  PRACTICE: 'practice',
+  GIVE_HINT: 'practice',
+  REVIEW_PREREQUISITE: 'learn',
+  MINI_CHECK: 'mini_check',
+  ADVANCE: 'learn',
+  REQUEST_REASSESSMENT: 'learn',
+}
+
+interface AgentCopy {
+  eyebrow: string
+  title: string
+  why: string
+  objective: string
+  evidence: string
+  open: string
+  staticLabel: string
+  noExec: string
+  staticSound: string
+  staticFix: string
+  retry: string
+  roadmap: string
+  reassess: string
+  submitNote: string
+  unverified: string
+  loading: string
+  english: string
+  egyptianArabic: string
+}
+
+const AGENT_COPY: Record<LearningLanguage, AgentCopy> = {
+  en: {
+    eyebrow: 'Learning agent',
+    title: 'Your next best step',
+    why: 'Why this step?',
+    objective: 'Objective',
+    evidence: 'Evidence',
+    open: 'Open this step',
+    staticLabel: 'Static code check / فحص ثابت للكود',
+    noExec: 'Python code is not executed here. This is a structural review only — it never changes your practice score and never verifies a skill.',
+    staticSound: 'The stored structural check looks sound, so a Mini Check can confirm understanding. It still does not run the code.',
+    staticFix: 'The stored structural check still finds missing structure. Revise the practice answer and try again.',
+    retry: 'Retry recommendation',
+    roadmap: 'View full roadmap',
+    reassess: 'Regenerate your path from the latest diagnostic, or retake the diagnostic to continue.',
+    submitNote: 'Practice answers and Mini Checks are submitted through the real lesson APIs; the agent only recommends.',
+    unverified: 'This recommendation never verifies a skill — only a passed Final Assessment can do that.',
+    loading: 'Choosing your next step…',
+    english: 'English',
+    egyptianArabic: 'العربية المصرية',
+  },
+  ar: {
+    eyebrow: 'وكيل التعلّم',
+    title: 'أفضل خطوة تالية',
+    why: 'لماذا هذه الخطوة؟',
+    objective: 'الهدف',
+    evidence: 'الأدلة',
+    open: 'افتح هذه الخطوة',
+    staticLabel: 'Static code check / فحص ثابت للكود',
+    noExec: 'لا يتم تنفيذ كود Python هنا. هذا فحص هيكلي فقط — لا يغيّر درجة التدريب ولا يوثّق المهارة.',
+    staticSound: 'الفحص الهيكلي المخزّن سليم، لذا يمكن إجراء الاختبار المصغّر للتأكد من الفهم. ولا يزال لا ينفّذ الكود.',
+    staticFix: 'لا يزال الفحص الهيكلي يجد بنية ناقصة. عدّل إجابة التدريب ثم حاول مرة أخرى.',
+    retry: 'أعد المحاولة',
+    roadmap: 'عرض خريطة الطريق كاملة',
+    reassess: 'أعد إنشاء مسارك من أحدث تشخيص، أو أعد التشخيص للمتابعة.',
+    submitNote: 'تُرسَل إجابات التدريب والاختبار المصغّر عبر واجهات الدرس الحقيقية؛ والوكيل يوصي فقط.',
+    unverified: 'هذه التوصية لا توثّق أي مهارة — فقط اجتياز التقييم النهائي يفعل ذلك.',
+    loading: 'جارٍ اختيار خطوتك التالية…',
+    english: 'English',
+    egyptianArabic: 'العربية المصرية',
+  },
+}
+
+function LearningAgentPanel({ studentId, skillId, onOpenTopic }: {
+  studentId: number
+  skillId: number
+  onOpenTopic: (competency: string, tab?: LessonTab) => void
+}) {
+  const [language, setLanguage] = useLearningLanguage()
+  const copy = AGENT_COPY[language]
+  const [agentDecision, setAgentDecision] = useState<LearningAgentDecision | null>(null)
+  const [latestAttempt, setLatestAttempt] = useState<PracticeAttempt | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [showEvidence, setShowEvidence] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    setError('')
+    api.learningAgentNext(studentId, skillId)
+      .then((decision) => { if (alive) setAgentDecision(decision) })
+      .catch((e: unknown) => {
+        if (!alive) return
+        setAgentDecision(null)
+        setError((e as Error)?.message || 'Could not load the learning recommendation.')
+      })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [studentId, skillId, retryKey])
+
+  const topic = agentDecision?.topic_id ?? null
+  useEffect(() => {
+    let alive = true
+    if (!topic) { setLatestAttempt(null); return () => { alive = false } }
+    api.lessonPracticeAttempts(studentId, skillId, topic)
+      .then((res) => { if (alive) setLatestAttempt(res.latest) })
+      .catch(() => { if (alive) setLatestAttempt(null) })
+    return () => { alive = false }
+  }, [studentId, skillId, topic, retryKey])
+
+  const staticCheck = latestAttempt?.practice_task?.static_check ?? null
+  const structurallySound = latestAttempt?.practice_task?.static_check?.status === 'looks_structurally_sound'
+
+  return (
+    <section className="agent-panel hcard-ai" aria-label="Learning agent recommendation">
+      <div className="agent-head">
+        <div className="panel-title-row">
+          <span className="panel-title-icon"><IconBolt size={15} /></span>
+          <div>
+            <span className="eyebrow">{copy.eyebrow}</span>
+            <h3 className="panel-title">{copy.title}</h3>
+          </div>
+        </div>
+        <div className="agent-lang" role="group" aria-label="Learning language">
+          <button type="button" className={`agent-lang-btn ${language === 'en' ? 'active' : ''}`}
+                  aria-pressed={language === 'en'} onClick={() => setLanguage('en')}>{copy.english}</button>
+          <button type="button" className={`agent-lang-btn ${language === 'ar' ? 'active' : ''}`}
+                  aria-pressed={language === 'ar'} onClick={() => setLanguage('ar')}>{copy.egyptianArabic}</button>
+        </div>
+      </div>
+
+      {loading && <p className="muted small agent-status" role="status">{copy.loading}</p>}
+
+      {error && (
+        <div className="agent-error" role="alert">
+          <span>{error}</span>
+          <button type="button" className="btn btn-sm" onClick={() => setRetryKey((k) => k + 1)}>{copy.retry}</button>
+        </div>
+      )}
+
+      {agentDecision && (
+        <>
+          <div className="agent-decision">
+            <span className="chip-btn agent-action-chip" data-action={agentDecision.action_type}>{agentDecision.action_type}</span>
+            <p className="agent-next-step">{agentDecision.next_step}</p>
+            {agentDecision.objective && (
+              <p className="muted small"><strong>{copy.objective}:</strong> {agentDecision.objective}</p>
+            )}
+          </div>
+
+          <button type="button" className="btn-link agent-why" aria-expanded={showEvidence}
+                  onClick={() => setShowEvidence((s) => !s)}>
+            {copy.why}
+          </button>
+          {showEvidence && (
+            <ul className="agent-evidence" aria-label={copy.evidence}>
+              {agentDecision.evidence.map((item, i) => (
+                <li key={i}><strong>{item.kind}</strong>: {item.detail}</li>
+              ))}
+            </ul>
+          )}
+
+          {staticCheck && (
+            <div className={`agent-static-check ${structurallySound ? 'sound' : 'fix'}`} role="note">
+              <span className="agent-static-label">{copy.staticLabel}</span>
+              <p className="agent-static-disclosure">{copy.noExec}</p>
+              <p className="agent-static-status">{structurallySound ? copy.staticSound : copy.staticFix}</p>
+              {Array.isArray(staticCheck.checks) && staticCheck.checks.length > 0 && (
+                <ul className="agent-static-list">
+                  {staticCheck.checks.map((check, i) => <li key={i}>{check}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="agent-actions">
+            {agentDecision.action_type === 'REQUEST_REASSESSMENT' ? (
+              <p className="muted small agent-reassess">{copy.reassess}</p>
+            ) : topic ? (
+              <button type="button" className="btn btn-primary"
+                      onClick={() => onOpenTopic(topic, AGENT_ACTION_TABS[agentDecision.action_type])}>
+                {copy.open} <IconArrowRight size={14} />
+              </button>
+            ) : null}
+            <button type="button" className="btn btn-ghost"
+                    onClick={() => document.getElementById('career-roadmap')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+              {copy.roadmap}
+            </button>
+          </div>
+
+          <p className="muted small agent-submit-note">{copy.submitNote}</p>
+        </>
+      )}
+
+      <p className="agent-unverified"><IconShield size={13} /> {copy.unverified}</p>
+    </section>
+  )
+}
+
+
 export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed, backTo }: {
   onNavigate?: (section: string, focus?: { skillId: number; roleTitle: string }) => void
   initialFocus?: { skillId: number; roleTitle: string } | null
@@ -86,6 +319,10 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const [loadError, setLoadError] = useState('')
   const [activity, setActivity] = useState<ActivitySummary | null>(null)
   const [scenarioLib, setScenarioLib] = useState<ScenarioLibrary | null>(null)
+  // The stored student profile answers "My Skills": self-reported claims and
+  // officially verified skills come straight from the profile API, never from
+  // role skill gaps (which belong to the "for-you" recommendations).
+  const [studentProfile, setStudentProfile] = useState<Student | null>(null)
   // Deep link from Skills & Roles ("Learn this skill"): focus a specific skill
   // while keeping the role that prompted it in view as dismissible context.
   const [focusInfo, setFocusInfo] = useState<{ skillId: number; roleTitle: string } | null>(null)
@@ -138,6 +375,15 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   useEffect(() => {
     if (!studentId) return
     let alive = true
+    api.student(studentId)
+      .then((profile) => { if (alive) setStudentProfile(profile) })
+      .catch(() => { if (alive) setStudentProfile(null) })
+    return () => { alive = false }
+  }, [studentId])
+
+  useEffect(() => {
+    if (!studentId) return
+    let alive = true
     api.studentActivity(studentId)
       .then((a) => { if (alive) setActivity(a) })
       .catch(() => { if (alive) setActivity(null) })
@@ -173,10 +419,47 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     return () => { alive = false }
   }, [studentId, openGapSkillKey])
 
-  const continueGaps = openGaps.filter((gap) => {
+  // "My Skills" answers from the stored student profile: every self-reported
+  // claim (profileSource 'claim') plus every officially verified skill
+  // ('verified'). A skill that is both merges to the verified entry. These are
+  // profile skills, NOT role skill gaps — the gaps stay in "for-you".
+  const profileSkills = useMemo<SkillGap[]>(() => {
+    const byId = new Map<number, SkillGap>()
+    for (const s of studentProfile?.self_reported_skills ?? []) {
+      byId.set(s.skill_id, {
+        skill_id: s.skill_id,
+        skill_name: s.name,
+        category: s.category,
+        required_level: s.level,
+        student_level: s.level,
+        status: 'gap',
+        verified: false,
+        profileSource: 'claim',
+      })
+    }
+    for (const v of studentProfile?.verified_skills ?? []) {
+      byId.set(v.skill_id, {
+        skill_id: v.skill_id,
+        skill_name: v.name,
+        category: v.category,
+        required_level: v.level,
+        student_level: v.level,
+        status: 'strong',
+        verified: true,
+        profileSource: 'verified',
+      })
+    }
+    return [...byId.values()]
+  }, [studentProfile])
+
+  const continueSkills = openGaps.filter((gap) => {
     const path = pathsBySkill[gap.skill_id]
     const progress = topicProgressFor(path)
     return !!path && progress.hasTopics && !progress.complete
+  })
+  const completedLearningSkills = allGaps.filter((gap) => {
+    const progress = topicProgressFor(pathsBySkill[gap.skill_id])
+    return gap.status === 'strong' || (!!pathsBySkill[gap.skill_id] && progress.complete)
   })
   const completedLearningCount = openGaps.filter((gap) => {
     const path = pathsBySkill[gap.skill_id]
@@ -193,25 +476,25 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
 
   const tabCounts: Record<LearningTab, number> = {
     'for-you': openGaps.length,
-    'my-skills': allGaps.length,
-    continue: continueGaps.length,
+    'my-skills': studentProfile ? profileSkills.length : allGaps.length,
+    continue: continueSkills.length,
     completed: completedCount,
   }
 
   const skillsForTab = useMemo(() => {
-    if (activeTab === 'my-skills') return allGaps
-    if (activeTab === 'continue') {
-      const ids = new Set(continueGaps.map((gap) => gap.skill_id))
-      return openGaps.filter((gap) => ids.has(gap.skill_id))
-    }
-    if (activeTab === 'completed') {
-      return allGaps.filter((gap) => {
-        const progress = topicProgressFor(pathsBySkill[gap.skill_id])
-        return gap.status === 'strong' || (!!pathsBySkill[gap.skill_id] && progress.complete)
-      })
-    }
+    if (activeTab === 'my-skills') return profileSkills
+    if (activeTab === 'continue') return continueSkills
+    if (activeTab === 'completed') return completedLearningSkills
     return openGaps
-  }, [activeTab, allGaps, openGaps, continueGaps, pathsBySkill])
+  }, [activeTab, profileSkills, continueSkills, completedLearningSkills, openGaps])
+
+  const tabCopy: Record<LearningTab, string> = {
+    'for-you': 'Recommended for you',
+    'my-skills': 'Skill map',
+    continue: 'In-progress paths',
+    completed: 'Completed skills',
+  }
+  const currentTabCopy = tabCopy[activeTab]
 
   const filteredSkills = skillsForTab.filter((gap) => {
     const q = query.trim().toLowerCase()
@@ -227,14 +510,17 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   useEffect(() => {
     // A deep link from Skills & Roles wins over the automatic first-gap select.
     if (focusInfo) return
-    const preferred = openGaps[0] || allGaps[0]
+    const preferred = skillsForTab[0] || openGaps[0] || allGaps[0]
     if (!preferred) return
-    if (!selectedSkillId || !allGaps.some((gap) => gap.skill_id === selectedSkillId)) {
+    if (!selectedSkillId || !skillsForTab.some((gap) => gap.skill_id === selectedSkillId)) {
       setSelectedSkillId(preferred.skill_id)
     }
-  }, [analysis?.role_id, allGaps.length, openGaps.length, selectedSkillId, focusInfo])
+  }, [analysis?.role_id, skillsForTab, selectedSkillId, focusInfo])
 
-  const selectedGap = allGaps.find((gap) => gap.skill_id === selectedSkillId) || filteredSkills[0] || openGaps[0] || allGaps[0]
+  const selectedGap = skillsForTab.find((gap) => gap.skill_id === selectedSkillId)
+    || filteredSkills[0]
+    || openGaps[0]
+    || allGaps[0]
 
   // Phase 5: for the currently focused skill, surface the role-specific
   // practice scenarios written for it (matched by skill name on the cards).
@@ -290,7 +576,12 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     pct: openGaps.length ? Math.round((verifiedRequiredSet.size / openGaps.length) * 100) : 0,
   }
 
-  const matchPct = allGaps.length ? Math.round((allGaps.filter((g) => g.status === 'strong').length / allGaps.length) * 100) : null
+  // Data truth (Phase 2): read the backend's canonical target requirement
+  // coverage. Never recompute a "match" from strong/total here — that ignored
+  // partial credit and could disagree with the Dashboard ring for the same role.
+  const matchPct = analysis?.metrics?.target_requirement_coverage != null
+    ? Math.round(analysis.metrics.target_requirement_coverage)
+    : (analysis?.match_score != null ? Math.round(analysis.match_score) : null)
   const requiredSkillCount = allGaps.length
   const plannedMinutes = knownPaths.reduce((sum, path) => sum + sumPathMinutes(path), 0)
 
@@ -303,7 +594,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const studyGoalPct = plannedMinutes > 0 ? Math.min(100, Math.round((plannedMinutes / STUDY_GOAL_MINUTES) * 100)) : 0
   const streakGoalPct = activity ? Math.min(100, Math.round((activity.streak_days / STREAK_GOAL_DAYS) * 100)) : 0
 
-  const stepperRows = openGaps.map((gap) => {
+  const stepperRows = skillsForTab.map((gap) => {
     const path = pathsBySkill[gap.skill_id]
     const progress = topicProgressFor(path)
     const doneSet = new Set(path?.progress ?? [])
@@ -320,7 +611,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   })
   const currentSkillId = stepperRows.find((r) => r.status !== 'done')?.gap.skill_id ?? null
 
-  const topicCategories = [...new Set(openGaps.map((g) => g.category).filter(Boolean))]
+  const topicCategories = [...new Set(skillsForTab.map((g) => g.category).filter(Boolean))]
   const visibleStepperRows = topicFilter === 'all' ? stepperRows : stepperRows.filter((r) => r.gap.category === topicFilter)
   const shownStepperRows = visibleStepperRows.slice(0, 8)
   const moreModulesCount = visibleStepperRows.length - shownStepperRows.length
@@ -403,17 +694,14 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         <div className="learning-hero-copy">
           <p className="learning-hero-eyebrow">Learning</p>
           <h1>Build the skills your target role expects.</h1>
-          <p>
-            Start with a topic diagnostic, follow the personalized path, and complete each topic
-            through its Mini Check. The AI Tutor is there when you need a different angle.
-          </p>
+          <p>Follow one personalized path from skill gap to practice and verified progress. Your AI Tutor is available whenever you need help.</p>
         </div>
-        <div className="hero-target-card">
+        <div className="hero-target-card hcard-opportunity">
           <div className="hero-target-card-head"><IconRoadmap size={15} /> Target role</div>
           <div className="hero-target-role">{targetTitle || 'No target selected'}</div>
           {matchPct !== null && (
             <>
-              <p className="hero-progress-label">Current skill match <strong>{matchPct}%</strong></p>
+              <p className="hero-progress-label" title="Level-aware coverage of your target role's required skills (backend-computed).">Current requirement coverage <strong>{matchPct}%</strong></p>
               <div className="progress-track"><div className="progress-fill" style={{ width: `${matchPct}%` }} /></div>
             </>
           )}
@@ -431,7 +719,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
       </section>
 
       <section className="lp-stat-grid" aria-label="Learning stats">
-        <article className="lp-stat-card">
+        <article className="lp-stat-card hcard-progress">
           <div className="lp-stat-top">
             <span className="lp-stat-icon blue"><IconAssessment size={18} /></span>
             <div>
@@ -449,7 +737,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           )}
         </article>
 
-        <article className="lp-stat-card">
+        <article className="lp-stat-card hcard-progress">
           <div className="lp-stat-top">
             <span className="lp-stat-icon teal"><IconClock size={18} /></span>
             <div>
@@ -461,19 +749,19 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           <p className="lp-stat-sub">planned across your learning path · vs a 7h goal</p>
         </article>
 
-        <article className="lp-stat-card">
+        <article className="lp-stat-card hcard-progress">
           <div className="lp-stat-top">
-            <span className="lp-stat-icon coral"><IconBolt size={18} /></span>
+            <span className="lp-stat-icon brand"><IconBolt size={18} /></span>
             <div>
               <p className="lp-stat-label">Current streak</p>
               <p className="lp-stat-value">{activity ? <>{activity.streak_days} <small>days</small></> : '\u2014'}</p>
             </div>
           </div>
-          <div className="progress-track on-light"><div className="progress-fill" style={{ width: `${streakGoalPct}%`, background: 'var(--sb-coral)' }} /></div>
+          <div className="progress-track on-light"><div className="progress-fill" style={{ width: `${streakGoalPct}%`, background: 'var(--sb-indigo)' }} /></div>
           <p className="lp-stat-sub">{activity && activity.active_days > 0 ? `${activity.active_days} active days · 30-day goal` : 'from your activity · 30-day goal'}</p>
         </article>
 
-        <article className="lp-stat-card">
+        <article className="lp-stat-card hcard-progress">
           <div className="lp-stat-top">
             <span className="lp-stat-icon green"><IconCheck size={18} /></span>
             <div>
@@ -487,14 +775,16 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
       </section>
 
       <div className="learning-layout">
-        <main className="panel path-panel">
+        <main className="panel path-panel hcard-info">
           <div className="panel-head">
             <div>
               <div className="panel-title-row">
                 <span className="panel-title-icon"><IconTarget size={15} /></span>
-                <h3 className="panel-title">Your skill gaps</h3>
+                <h3 className="panel-title">{currentTabCopy}</h3>
               </div>
-              <p className="panel-subtitle">One row per skill gap. Start a diagnostic on a gap to build its personalized path, then complete every Mini Check to finish it.</p>
+              <p className="panel-subtitle">{activeTab === 'my-skills'
+                ? 'Every skill on your profile — self-reported claims and officially verified ones. Pick one to study it toward your target role.'
+                : 'One row per skill. Start a diagnostic on a gap to build its personalized path, then complete every Mini Check to finish it.'}</p>
             </div>
             <select className="lp-filter" value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)} aria-label="Filter path by topic category">
               <option value="all">All topics</option>
@@ -582,7 +872,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         </main>
 
         <aside className="right-col">
-          <div className="panel lp-tutor-panel">
+          <div className="panel lp-tutor-panel hcard-ai">
             <div className="lp-tutor-avatar"><IconChat size={22} /></div>
             <h3 className="panel-title">AI Tutor</h3>
             <p>Chat with our assistant about any topic on your path — it knows your background, current skills, and target role.</p>
@@ -632,11 +922,11 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         </aside>
       </div>
 
-      {continueGaps.length > 0 && (
+      {continueSkills.length > 0 && (
         <section className="learning-section">
-          <SectionTitle eyebrow="Continue Learning" title="Pick up where you left off" meta={`${continueGaps.length} active path${continueGaps.length === 1 ? '' : 's'}`} />
+          <SectionTitle eyebrow="Continue Learning" title="Pick up where you left off" meta={`${continueSkills.length} active path${continueSkills.length === 1 ? '' : 's'}`} />
           <div className="continue-grid">
-            {continueGaps.slice(0, 3).map((gap) => (
+            {continueSkills.slice(0, 3).map((gap) => (
               <ContinueLearningCard
                 key={gap.skill_id}
                 gap={gap}
@@ -652,7 +942,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         <section className="learning-section">
           <SectionTitle
             eyebrow="Recommended Skills"
-            title={activeTab === 'my-skills' ? 'Skill map' : activeTab === 'continue' ? 'In-progress paths' : activeTab === 'completed' ? 'Completed skills' : 'Recommended for you'}
+            title={currentTabCopy}
             meta={`${filteredSkills.length} shown`}
           />
           {loadError && <div className="error learning-error">{loadError}</div>}
@@ -661,6 +951,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
               <SkillCard
                 key={gap.skill_id}
                 gap={gap}
+                profileSource={gap.profileSource}
                 path={pathsBySkill[gap.skill_id]}
                 selected={selectedGap?.skill_id === gap.skill_id}
                 onSelect={() => setSelectedSkillId(gap.skill_id)}
@@ -701,6 +992,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
             if (item) void toggleStep(item, n)
           }}
           onCompetencyChange={setCopilotCompetency}
+          onOpenTopic={(competency, tab) => openLessonTopic(selectedGap.skill_id, competency, tab)}
         />
       )}
 
@@ -716,7 +1008,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   )
 }
 
-function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, focusSignal, onPathChange, onToggleStep, onCompetencyChange }: {
+function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, focusSignal, onPathChange, onToggleStep, onCompetencyChange, onOpenTopic }: {
   studentId: number
   gap: SkillGap
   item?: LearningItem
@@ -727,6 +1019,7 @@ function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, 
   onPathChange?: (path: PersonalizedPath | null) => void
   onToggleStep: (step: number) => void
   onCompetencyChange: (competency: string | null) => void
+  onOpenTopic: (competency: string, tab?: LessonTab) => void
 }) {
   const [diagRefreshKey, setDiagRefreshKey] = useState(0)
   return (
@@ -737,6 +1030,8 @@ function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, 
         roleTitle={roleTitle}
         topicProgress={topicProgressFor(path, gap.status === 'strong' ? 100 : 0)}
       />
+
+      <LearningAgentPanel studentId={studentId} skillId={gap.skill_id} onOpenTopic={onOpenTopic} />
 
       <DiagnosticPanel studentId={studentId} skillId={gap.skill_id} skillName={gap.skill_name} startSignal={startSignal} onComplete={() => setDiagRefreshKey(k => k + 1)} />
 
@@ -1707,6 +2002,17 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
         )}
       </div>
 
+      {path && path.stale && (
+        <div className="pp-stale-note" role="note">
+          <IconAlert size={15} />
+          <span>
+            This path was built from an <strong>earlier diagnostic</strong>. A newer completed
+            diagnostic exists, so these topics may no longer reflect your current results and
+            do not count toward Final Assessment readiness. Create a fresh path to realign it.
+          </span>
+        </div>
+      )}
+
       {error && <div className="error learning-error">{error}</div>}
 
       {!path && diagnosticDone && (
@@ -1839,6 +2145,13 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
                 available from the Assessments page; every required competency below must score 70%
                 or higher for the attempt to pass.
               </p>
+              {finalStatus.path_stale && (
+                <p className="muted small pp-stale-inline" role="note">
+                  <IconAlert size={13} /> Your learning path is stale (built from an earlier
+                  diagnostic), so its completed topics are not counted here. Only your latest
+                  completed diagnostic counts toward coverage.
+                </p>
+              )}
               <div className="plan-coverage">
                 {finalStatus.readiness.required.map((slug) => {
                   const covered = finalStatus.readiness.satisfied.includes(slug)
@@ -1882,7 +2195,7 @@ function CareerRoadmapCard({ studentId, roleTitle }: { studentId: number; roleTi
   if (!map || !Array.isArray(map.phases) || !map.phases.length) return null
 
   return (
-    <section className="learning-section career-roadmap-section">
+    <section className="learning-section career-roadmap-section" id="career-roadmap">
       <SectionTitle
         eyebrow="Career Roadmap"
         title="High-level career journey"
@@ -1920,7 +2233,7 @@ function CareerRoadmapCard({ studentId, roleTitle }: { studentId: number; roleTi
                         : []
                     ).map((deliverable, i) => (
                       <div className="cr-deliverable" key={i}>
-                        <span className="rm-checkbox" style={{ background: 'var(--navy)', borderColor: 'var(--navy)' }}>{i + 1}</span>
+                        <span className="rm-checkbox" style={{ background: 'var(--sb-midnight)', borderColor: 'var(--sb-midnight)' }}>{i + 1}</span>
                         <div className="md-body"><SafeMarkdown>{deliverable}</SafeMarkdown></div>
                       </div>
                     ))}

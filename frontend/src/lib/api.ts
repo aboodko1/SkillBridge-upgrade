@@ -1,11 +1,17 @@
 import type {
   ActivitySummary, Analysis, AssessmentAttempt, Candidate, CareerRoadmap, CohortResponse, Company, GeneratedAssessment,
   DiagnosticResult, GeneratedDiagnostic, GoogleConfig, LearningItem, Lesson, QuizQuestion, PublicProfile, RoleRecord, RolesResponse, RoleSkillCoverage, Skill, Student,
-  Session, TutorMessage, InterviewReply, UniversityStatsResponse, UniversityOption, RecentJob, RecentJobsResponse, LocationOption,
+  Session, TutorConversation, TutorMessage, InterviewReply, UniversityStatsResponse, UniversityOption, RecentJob, RecentJobsResponse, LocationOption,
   PersonalizedPath, PersonalizedPathItem, PersonalizedStage, PersonalizedPathResponse, FinalAssessmentStatus, PracticeAttempt, PracticeAttemptsResponse,
+  LearningAgentDecision,
   EscoMarketResponse, RoleRecommendationsResponse,
   ScenarioLibrary, ScenarioPlayer, ScenarioResult, ScenarioHint, ScenarioHistory, SavedRolesResponse,
   RoleMappingSuggestion, RoleMappingEvent,
+  TargetRoleMatchBreakdown, RoleMatchBreakdown, JobMatchBreakdown,
+  SaveJobRequest, TrackedJob, TrackerResponse, JobPreparePayload,
+  RecentRole, RecentRolesResponse,
+  RoleProvenance, JobsHealthPayload, JobLinkReport,
+  CopilotConfigResponse, CopilotOnboardingStateResponse, CopilotOnboardingSubmit, CopilotOnboardingResponse,
 } from './types'
 import type { AssessmentIntegrityEvent } from './webcamIntegrity'
 
@@ -134,17 +140,51 @@ export const api = {
     const headers: Record<string, string> = {}
     const token = getToken()
     if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await fetch(`${BASE}/api/students/${studentId}/cv`, { method: 'POST', body: fd, headers })
-    if (!res.ok) {
-      let detail = 'CV upload failed'
-      try { const d = await res.json(); detail = d.detail || detail } catch { /* ignore */ }
-      if (res.status === 401) setToken(null)
-      throw new Error(detail)
+    const controller = new AbortController()
+    // CV extraction runs a provider call server-side; bound it client-side so
+    // "Extracting…" can never hang forever when the provider is slow/down.
+    const timer = window.setTimeout(() => controller.abort(), 50_000)
+    try {
+      const res = await fetch(`${BASE}/api/students/${studentId}/cv`, {
+        method: 'POST', body: fd, headers, signal: controller.signal,
+      })
+      if (!res.ok) {
+        let detail = 'CV upload failed'
+        try { const d = await res.json(); detail = d.detail || detail } catch { /* ignore */ }
+        if (res.status === 401) setToken(null)
+        throw new Error(detail)
+      }
+      return res.json()
+    } catch (e: any) {
+      if (controller.signal.aborted) {
+        throw new Error('CV extraction took too long — your existing profile was kept.')
+      }
+      throw e
+    } finally {
+      window.clearTimeout(timer)
     }
-    return res.json()
   },
 
   analysis: (studentId: number) => req<Analysis>(`/api/students/${studentId}/analysis`),
+
+  // ---- Phase J: explainable match breakdowns (read-only)
+  targetRoleMatchBreakdown: (studentId: number) =>
+    req<TargetRoleMatchBreakdown>(`/api/students/${studentId}/target-role-match/breakdown`),
+  roleMatchBreakdown: (studentId: number, roleId?: number | null, externalId?: string | null) => {
+    const qs = new URLSearchParams()
+    if (roleId != null) qs.set('role_id', String(roleId))
+    else if (externalId) qs.set('external_id', externalId)
+    return req<RoleMatchBreakdown>(`/api/students/${studentId}/role-match/breakdown?${qs.toString()}`)
+  },
+  jobMatchBreakdown: (studentId: number, fingerprint: string, opts?: { location?: string; country?: string; market?: string }) => {
+    const qs = new URLSearchParams()
+    if (opts?.location) qs.set('location', opts.location)
+    if (opts?.country) qs.set('country', opts.country)
+    if (opts?.market) qs.set('market', opts.market)
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return req<JobMatchBreakdown>(
+      `/api/students/${studentId}/jobs/recent/${encodeURIComponent(fingerprint)}/breakdown${suffix}`)
+  },
 
   learning: (studentId: number) => req<LearningItem[]>(`/api/students/${studentId}/learning`),
   generateLearning: (studentId: number, skillId: number) =>
@@ -182,19 +222,45 @@ export const api = {
   lessonMiniCheck: (studentId: number, skillId: number, competency: string, answers: string[]) =>
     req<{ lesson: Lesson; path_progress: string[] }>(`/api/students/${studentId}/learning/${skillId}/lessons/${encodeURIComponent(competency)}/mini-check`, { method: 'POST', body: JSON.stringify({ answers }) }),
 
+  learningAgentNext: (studentId: number, skillId: number) =>
+    req<LearningAgentDecision>(`/api/students/${studentId}/learning/${skillId}/orchestrator/next`),
+
   publicProfile: (studentId: number) => req<PublicProfile>(`/api/public/verified/${studentId}`),
 
-  tutorHistory: (studentId: number, tutorId?: string) =>
-    req<TutorMessage[]>(`/api/students/${studentId}/tutor${tutorId ? `?tutor_id=${encodeURIComponent(tutorId)}` : ''}`),
-  clearTutorChat: (studentId: number, tutorId: string) =>
-    req<{ cleared: boolean; tutor_id: string }>(`/api/students/${studentId}/tutor`, { method: 'DELETE', body: JSON.stringify({ tutor_id: tutorId }) }),
+  tutorConversations: (studentId: number, includeEmpty = false) =>
+    req<{ conversations: TutorConversation[] }>(`/api/students/${studentId}/tutor/conversations${includeEmpty ? '?include_empty=true' : ''}`),
+  newTutorConversation: (studentId: number, tutorId: string) =>
+    req<{ conversation: TutorConversation }>(`/api/students/${studentId}/tutor/conversations`, { method: 'POST', body: JSON.stringify({ tutor_id: tutorId }) }),
+  tutorHistory: (studentId: number, tutorId?: string, conversationId?: number | null) => {
+    const qs = new URLSearchParams()
+    if (tutorId) qs.set('tutor_id', tutorId)
+    if (conversationId != null) qs.set('conversation_id', String(conversationId))
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return req<TutorMessage[]>(`/api/students/${studentId}/tutor${suffix}`)
+  },
+  clearTutorChat: (studentId: number, tutorId: string, conversationId?: number | null) =>
+    req<{ cleared: boolean; tutor_id: string; conversation_id?: number | null }>(`/api/students/${studentId}/tutor`, { method: 'DELETE', body: JSON.stringify({ tutor_id: tutorId, conversation_id: conversationId ?? null }) }),
   tutorTts: (studentId: number, tutor: string, text: string) =>
     reqBlob(`/api/students/${studentId}/tutor/tts`, { method: 'POST', body: JSON.stringify({ tutor, text }) }),
-  tutorSend: (studentId: number, message: string, opts: { skillId?: number | null; page?: string; competency?: string | null; jobTitle?: string | null; jobUrl?: string | null; tutorId?: string | null; mode?: string | null; language?: string | null } = {}) =>
-    req<TutorMessage & { reply?: string; tutor_id?: string; mode?: string; language?: string }>(`/api/students/${studentId}/tutor`, { method: 'POST', body: JSON.stringify({ message, skill_id: opts.skillId ?? null, page: opts.page ?? 'dashboard', competency: opts.competency ?? null, job_title: opts.jobTitle ?? null, job_url: opts.jobUrl ?? null, tutor_id: opts.tutorId ?? null, mode: opts.mode ?? null, language: opts.language ?? null }) }),
+  tutorStt: (studentId: number, audio: string, language: string) =>
+    req<{ text: string }>(`/api/students/${studentId}/tutor/stt`, { method: 'POST', body: JSON.stringify({ audio, language }) }),
+  tutorSend: (studentId: number, message: string, opts: { skillId?: number | null; page?: string; competency?: string | null; jobTitle?: string | null; jobUrl?: string | null; tutorId?: string | null; mode?: string | null; language?: string | null; conversationId?: number | null; spoken?: boolean; turn?: number | null } = {}) =>
+    req<TutorMessage & { reply?: string; tutor_id?: string; mode?: string; language?: string; conversation_id?: number | null; conversation?: TutorConversation }>(`/api/students/${studentId}/tutor`, { method: 'POST', body: JSON.stringify({ message, skill_id: opts.skillId ?? null, page: opts.page ?? 'dashboard', competency: opts.competency ?? null, job_title: opts.jobTitle ?? null, job_url: opts.jobUrl ?? null, tutor_id: opts.tutorId ?? null, mode: opts.mode ?? null, language: opts.language ?? null, conversation_id: opts.conversationId ?? null, spoken: opts.spoken === true, turn: opts.turn ?? null }) }),
   tutorPreference: (studentId: number) => req<{ tutor_id: string; mode?: string; language?: string }>(`/api/students/${studentId}/tutor/preference`),
+  // Abortable twin of tutorSend — the voice session cancels the in-flight tutor
+  // request when the student speaks again. Same payload, same endpoint.
+  tutorSendAbortable: (studentId: number, message: string, opts: { skillId?: number | null; page?: string; competency?: string | null; jobTitle?: string | null; jobUrl?: string | null; tutorId?: string | null; mode?: string | null; language?: string | null; conversationId?: number | null; spoken?: boolean; turn?: number | null } = {}, signal?: AbortSignal) =>
+    req<TutorMessage & { reply?: string; tutor_id?: string; mode?: string; language?: string; conversation_id?: number | null; conversation?: TutorConversation }>(`/api/students/${studentId}/tutor`, { method: 'POST', body: JSON.stringify({ message, skill_id: opts.skillId ?? null, page: opts.page ?? 'dashboard', competency: opts.competency ?? null, job_title: opts.jobTitle ?? null, job_url: opts.jobUrl ?? null, tutor_id: opts.tutorId ?? null, mode: opts.mode ?? null, language: opts.language ?? null, conversation_id: opts.conversationId ?? null, spoken: opts.spoken === true, turn: opts.turn ?? null }), signal }),
   setTutorPreference: (studentId: number, patch: { tutor_id?: string; mode?: string; language?: string } = {}) =>
     req<{ tutor_id: string; mode: string; language: string }>(`/api/students/${studentId}/tutor/preference`, { method: 'PUT', body: JSON.stringify(patch) }),
+  copilotConfig: (studentId: number) =>
+    req<CopilotConfigResponse>(`/api/students/${studentId}/copilot`),
+  setCopilot: (studentId: number, choice: string) =>
+    req<CopilotConfigResponse>(`/api/students/${studentId}/copilot`, { method: 'PUT', body: JSON.stringify({ choice }) }),
+  copilotOnboardingState: (studentId: number) =>
+    req<CopilotOnboardingStateResponse>(`/api/students/${studentId}/copilot/onboarding-state`),
+  submitCopilotOnboarding: (studentId: number, body: CopilotOnboardingSubmit) =>
+    req<CopilotOnboardingResponse>(`/api/students/${studentId}/copilot/onboarding`, { method: 'POST', body: JSON.stringify(body) }),
   startAssessmentSession: (studentId: number, skillId: number, externalToken?: string | null, webcamGate?: { passed: boolean; checked_at: string; meta?: Record<string, string | number | boolean> }) =>
     req<{ active: boolean; skill_id: number; webcam_gate?: { required: boolean; passed: boolean } }>(`/api/students/${studentId}/assessments/session`, { method: 'POST', body: JSON.stringify({ skill_id: skillId, external_token: externalToken || undefined, webcam_gate: webcamGate }) }),
   endAssessmentSession: (studentId: number) =>
@@ -207,6 +273,8 @@ export const api = {
     req<{ available: boolean; api_key_loaded: boolean; tutor_voices_loaded: Record<string, boolean> }>(`/api/students/${studentId}/interview/voice`),
   interviewTts: (studentId: number, tutor: string, text: string) =>
     reqBlob(`/api/students/${studentId}/interview/tts`, { method: 'POST', body: JSON.stringify({ tutor, text }) }),
+  tutorInterviewSummary: (studentId: number, opts: { language?: string; conversationId?: number | null } = {}, signal?: AbortSignal) =>
+    req<{ summary: string; language: string; mode?: string; tutor_id?: string; conversation_id?: number; turns?: number; chars?: number }>(`/api/students/${studentId}/interview/summary`, { method: 'POST', body: JSON.stringify({ language: opts.language ?? null, conversation_id: opts.conversationId ?? null }), signal }),
 
   generateAssessment: (studentId: number, skillId: number, opts: { practice?: boolean; num_questions?: number } = {}) =>
     req<GeneratedAssessment>(`/api/students/${studentId}/assessments/generate`, { method: 'POST', body: JSON.stringify({ skill_id: skillId, practice: !!opts.practice, num_questions: opts.num_questions || 10 }) }),
@@ -223,13 +291,29 @@ export const api = {
   universityConfirm: () => req<CohortResponse>('/api/university/cohort/confirm', { method: 'POST', body: JSON.stringify({ confirm: true }) }),
 
   // ---- recent jobs
-  recentJobs: (opts?: { location?: string; country?: string; market?: string }) => {
+  recentJobs: (opts?: { location?: string; country?: string; market?: string; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (opts?.location) qs.set('location', opts.location)
+    if (opts?.country) qs.set('country', opts.country)
+    if (opts?.market) qs.set('market', opts.market)
+    if (opts?.limit) qs.set('limit', String(opts.limit))
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return req<RecentJobsResponse>(`/api/jobs/recent${suffix}`)
+  },
+  jobsHealth: () => req<JobsHealthPayload>('/api/config/demo-mode'),
+  jobLinkReports: (studentId: number) => req<{ reports: JobLinkReport[] }>(`/api/students/${studentId}/jobs/link-reports`),
+  reportDeadJobLink: (studentId: number, fingerprint: string, payload: { location?: string; country?: string; market?: string } = {}) =>
+    req<{ report_id: number; created: boolean; fingerprint: string }>(
+      `/api/students/${studentId}/jobs/recent/${encodeURIComponent(fingerprint)}/report-dead-link`,
+      { method: 'POST', body: JSON.stringify(payload) }),
+  prepareJob: (studentId: number, fingerprint: string, opts?: { location?: string; country?: string; market?: string }) => {
     const qs = new URLSearchParams()
     if (opts?.location) qs.set('location', opts.location)
     if (opts?.country) qs.set('country', opts.country)
     if (opts?.market) qs.set('market', opts.market)
     const suffix = qs.toString() ? `?${qs.toString()}` : ''
-    return req<RecentJobsResponse>(`/api/jobs/recent${suffix}`)
+    return req<JobPreparePayload>(
+      `/api/students/${studentId}/jobs/recent/${encodeURIComponent(fingerprint)}/prepare${suffix}`)
   },
 
   // ---- full career roadmap
@@ -253,4 +337,23 @@ export const api = {
     req<SavedRolesResponse>(`/api/students/${studentId}/saved-roles/${roleId}`, { method: 'POST', body: JSON.stringify({}) }),
   unsaveRole: (studentId: number, roleId: number) =>
     req<SavedRolesResponse>(`/api/students/${studentId}/saved-roles/${roleId}`, { method: 'DELETE' }),
+
+  // ---- recently-viewed roles (Phase L role explorer)
+  recentRoles: (studentId: number) => req<RecentRolesResponse>(`/api/students/${studentId}/recent-roles`),
+  recordRoleView: (studentId: number, roleId: number) =>
+    req<{ viewed_at: string }>(`/api/students/${studentId}/recent-roles`, { method: 'POST', body: JSON.stringify({ role_id: roleId }) }),
+
+  // ---- role provenance + related-role graph (Phase M)
+  roleProvenance: (roleId: number) => req<RoleProvenance>(`/api/roles/${roleId}/provenance`),
+
+  // ---- saved jobs + application tracker (Phase K)
+  saveTrackedJob: (studentId: number, payload: SaveJobRequest) =>
+    req<{ tracker_id: number; created: boolean; item: TrackedJob }>(`/api/students/${studentId}/jobs/saved`, { method: 'POST', body: JSON.stringify(payload) }),
+  jobTracker: (studentId: number) => req<TrackerResponse>(`/api/students/${studentId}/jobs/tracker`),
+  trackerItem: (studentId: number, trackerId: number) =>
+    req<TrackedJob>(`/api/students/${studentId}/jobs/tracker/${trackerId}`),
+  updateTrackerItem: (studentId: number, trackerId: number, patch: Partial<Pick<TrackedJob, 'stage' | 'note' | 'interview_date' | 'application_deadline'>>) =>
+    req<TrackedJob>(`/api/students/${studentId}/jobs/tracker/${trackerId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteTrackerItem: (studentId: number, trackerId: number) =>
+    req<{ deleted: boolean }>(`/api/students/${studentId}/jobs/tracker/${trackerId}`, { method: 'DELETE' }),
 }

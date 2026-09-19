@@ -13,6 +13,7 @@ that request before any context is built.
 """
 
 import json
+import re
 
 from . import models, matching, career_roadmap, jobs, skill_blueprint as sb
 
@@ -48,6 +49,284 @@ def default_mode_for(tutor_id):
     return TUTOR_DEFAULT_MODES.get((tutor_id or "").strip().lower(), "chat")
 
 
+# ---------------------------------------------------------------- Build-Your-Copilot
+#
+# Mentor Experience Phase 1: the copilot choices ARE the four real SkillBridge
+# mentors (nova / axel / sage / vex). There is no separate archetype layer —
+# the old Navigator / Strategist / Confidant archetypes are gone from this
+# module and never surface in onboarding or recommendation UI.
+#
+# All four mentors share the same underlying intelligence; their identity here
+# is personality / communication / teaching style only (Phase 1 doesn't change
+# mentor AI behavior). Each preset's behavior/style mirrors the mentor's
+# canonical persona text (genai.TUTOR_PERSONAS) verbatim, so selecting a
+# mentor in onboarding produces exactly the same composed AI persona the user
+# already knows from chat — no intelligence change.
+#
+# Personality/capability is CONFIGURATION: the personality block below is
+# composed into the dynamic system prompt at chat time (genai.tutor_reply
+# ``personality`` override), so it is free to vary per user without touching
+# the voice pool. The voice is a SCARCE resource (shared ElevenLabs agents) and
+# is referenced, never duplicated, per copilot.
+COPILOT_KEYS = ("nova", "axel", "sage", "vex")
+
+COPILOT_CAPABILITIES = ("learning", "practice", "jobs", "planning")
+
+COPILOT_PRESETS = {
+    "nova": {
+        "voice_agent_id": "nova",
+        "name": "Nova",
+        "title": "Warm • Patient • Clear",
+        "role": "Explainer Tutor",
+        "specialty": "Learn & Explain",
+        "origin": "London, United Kingdom",
+        "traits": ["Warm", "Patient", "Clear", "Supportive"],
+        "behavior": (
+            "Teach in this rhythm for the student: 1) explain the idea simply, 2) break it "
+            "into small steps, 3) give a concrete example, 4) confirm they understood with a "
+            "gentle check-in. For beginner questions, avoid unnecessary jargon and define the "
+            "terms you use."
+        ),
+        "style": "Friendly, warm and encouraging like a supportive mentor. Acknowledge effort with genuine warmth, name one specific thing they did well, then gently push one step deeper.",
+        "capabilities": {"learning": True, "practice": True, "jobs": True, "planning": True},
+    },
+    "axel": {
+        "voice_agent_id": "axel",
+        "name": "Axel",
+        "title": "Energetic • Practical • Fun",
+        "role": "Practical Coach",
+        "specialty": "Practice & Build",
+        "origin": "California, United States",
+        "traits": ["Energetic", "Practical", "Direct", "Action-focused"],
+        "behavior": (
+            "Teach in this rhythm: 1) a short no-fluff explanation, 2) one practical example "
+            "or command they can try, 3) a concrete action/task to lock it in. If the student "
+            "explicitly asks for ONLY an explanation, do not force practice on them."
+        ),
+        "style": "Energetic, confident and hands-on like a practical coach. Be direct and motivating, insist on concrete built-and-tested examples, and use short punchy sentences.",
+        "capabilities": {"learning": True, "practice": True, "jobs": True, "planning": True},
+    },
+    "sage": {
+        "voice_agent_id": "sage",
+        "name": "Sage",
+        "title": "Calm • Analytical • Thoughtful",
+        "role": "Discussion Mentor",
+        "specialty": "Discuss & Think",
+        "origin": "Alexandria, Egypt",
+        "traits": ["Calm", "Analytical", "Thoughtful", "Reflective"],
+        "behavior": (
+            "Answer the question directly and correctly FIRST, then reason through it: give "
+            "your interpretation, compare alternative approaches and their tradeoffs, and "
+            "invite deeper reflection. Do not turn every answer into questions alone — always "
+            "give a real answer first."
+        ),
+        "style": "Calm, analytical and Socratic. Reflect the student's own words back and ask thoughtful why/how questions, rewarding clear reasoning over rote recitation.",
+        "capabilities": {"learning": True, "practice": True, "jobs": True, "planning": True},
+    },
+    "vex": {
+        "voice_agent_id": "vex",
+        "name": "Vex",
+        "title": "Sharp • Precise • Professional",
+        "role": "Examiner",
+        "specialty": "Test & Interview",
+        "origin": "Paris, France",
+        "traits": ["Precise", "Professional", "Challenging", "Sharp"],
+        "behavior": (
+            "Be precise: state the accurate answer, call out the important technical "
+            "distinction (terminology, edge cases, tradeoffs), and finish with a short "
+            "optional knowledge check. Do not turn every normal question into a formal test."
+        ),
+        "style": "Serious, precise and demanding — a disciplined examiner. Be fair but unforgiving of vague answers; require specifics, tradeoffs and numbers, with minimal praise.",
+        "capabilities": {"learning": True, "practice": True, "jobs": True, "planning": True},
+    },
+}
+
+
+def validate_choice(choice):
+    """Return a normalized copilot key, or None when the value is not one of the
+    four current mentors."""
+    if not isinstance(choice, str):
+        return None
+    choice = choice.strip().lower()
+    return choice if choice in COPILOT_PRESETS else None
+
+
+def copilot_options():
+    """The exact four starting points as an additive API payload (never more)."""
+    options = []
+    for key in COPILOT_KEYS:
+        p = COPILOT_PRESETS[key]
+        options.append({
+            "key": key,
+            "name": p["name"],
+            "title": p["title"],
+            "voice_agent_id": p["voice_agent_id"],
+            "capabilities": {c: bool((p.get("capabilities") or {}).get(c))
+                             for c in COPILOT_CAPABILITIES},
+        })
+    return options
+
+
+def snapshot_for(choice):
+    """Frozen per-user snapshot for a choice (see models.set_copilot_config).
+
+    The personality/capability fields are snapshotted at creation so later
+    edits never need a schema change and each stored config stays
+    self-contained.
+    """
+    preset = COPILOT_PRESETS[choice]
+    return {
+        "choice": choice,
+        "voice_agent_id": preset["voice_agent_id"],
+        "name": preset["name"],
+        "title": preset["title"],
+        "role": preset["role"],
+        "specialty": preset["specialty"],
+        "origin": preset["origin"],
+        "traits": list(preset.get("traits") or []),
+        "behavior": preset["behavior"],
+        "style": preset["style"],
+        "capabilities": dict(preset.get("capabilities") or {}),
+    }
+
+
+def personality_for_config(config):
+    """TUTOR_PERSONAS-shaped personality dict from a stored copilot config.
+
+    This is the additive ``personality`` override passed to
+    ``genai.tutor_reply``: it is layered ON TOP of the voice agent's fixed
+    persona (base mentor + optional user customization = final persona), so
+    personality/capability follow the per-user config while the base mentor's
+    identity and teaching strategy stay intact and the voice stays a shared
+    agent reference. ``None`` keeps current behavior.
+    """
+    if not config:
+        return None
+    return {
+        "name": config.get("name") or "the copilot",
+        "role": config.get("role"),
+        "origin": config.get("origin"),
+        "specialty": config.get("specialty"),
+        "traits": list(config.get("traits") or []),
+        "behavior": config.get("behavior"),
+        "style": config.get("style"),
+    }
+
+
+# ------------------------------------------------------- First-run onboarding quiz
+#
+# A student's first authenticated session may run a short, skippable,
+# four-question flow whose answers pick one of the EXACTLY four mentors above.
+# The SPA mirrors this tally in lib/copilotArchetypes.ts (single source of
+# truth in the frontend); the SERVER recomputes the winner from the submitted
+# answers and stores its own result — a client-sent ``choice`` is always
+# recomputed over (spec requirement: "treat the server's computation as the
+# source of truth"). Answer entries are the per-question voted mentor keys, so
+# tallying is a pure count. Ties are broken deterministically: the answer to
+# Question 4, then the answer to Question 1, then the default (Nova).
+ONBOARDING_STATES = ("not_started", "completed", "skipped")
+ONBOARDING_SOURCES = ("quiz", "skip", "manual_change")
+ONBOARDING_QUESTION_COUNT = 4
+DEFAULT_ARCHETYPE = "nova"
+
+# The four interview questions. Each option carries the mentor key it votes
+# for; the answer array persisted is the list of the four voted keys. This
+# copy (the owner-approved demo text) is the question/option/mentor source of
+# truth and must stay in sync with frontend/src/lib/copilotArchetypes.ts
+# (checked by a runtime checker).
+ONBOARDING_QUESTIONS = [
+    {
+        "question": "When you're learning something difficult, what helps you most?",
+        "options": [
+            {"label": "Explain it clearly, step by step", "vote": "nova"},
+            {"label": "Let me try something practical", "vote": "axel"},
+            {"label": "Help me understand why it works", "vote": "sage"},
+            {"label": "Test me and show me what I'm missing", "vote": "vex"},
+        ],
+    },
+    {
+        "question": "When you make a mistake, how should your mentor respond?",
+        "options": [
+            {"label": "Patiently explain it again", "vote": "nova"},
+            {"label": "Tell me directly and let me retry", "vote": "axel"},
+            {"label": "Discuss my thinking with me", "vote": "sage"},
+            {"label": "Challenge me with another question", "vote": "vex"},
+        ],
+    },
+    {
+        "question": "What kind of mentor personality keeps you engaged?",
+        "options": [
+            {"label": "Friendly and supportive", "vote": "nova"},
+            {"label": "Energetic and fun", "vote": "axel"},
+            {"label": "Calm and thoughtful", "vote": "sage"},
+            {"label": "Serious and challenging", "vote": "vex"},
+        ],
+    },
+    {
+        "question": "What do you expect to use SkillBridge for most?",
+        "options": [
+            {"label": "Learning new things", "vote": "nova"},
+            {"label": "Practicing and building", "vote": "axel"},
+            {"label": "Understanding concepts and decisions", "vote": "sage"},
+            {"label": "Testing myself and preparing for interviews", "vote": "vex"},
+        ],
+    },
+]
+
+# Onboarding lives in its own table (see database._migration_0010), separate
+# from copilot_config: removing a copilot must never reset "already asked".
+ONBOARDING_TABLE = "copilot_onboarding"
+
+
+def validate_onboarding_answers(answers):
+    """Return the normalized 4-element answer list, or None when invalid.
+
+    An answer set must be a sequence of EXACTLY four entries, each a valid
+    mentor key (the four voted keys selected by the student).
+    Everything else — wrong count, unknown keys, junk types — is None so callers
+    reject with a 400.
+    """
+    if not isinstance(answers, (list, tuple)):
+        return None
+    if len(answers) != ONBOARDING_QUESTION_COUNT:
+        return None
+    out = []
+    for entry in answers:
+        key = validate_choice(entry)
+        if key is None:
+            return None
+        out.append(key)
+    return out
+
+
+def score_archetype(answers):
+    """The mentor the answers vote for (server-side source of truth).
+
+    Pure tally over the answered mentor keys: the key with the most votes wins.
+    Ties resolve deterministically — 1) the Question 4 answer, 2) the Question 1
+    answer, 3) DEFAULT_ARCHETYPE (Nova) — and any degenerate input also falls
+    back to DEFAULT_ARCHETYPE so a result is always one of the four real
+    mentors and never fabricated.
+    """
+    if not validate_onboarding_answers(answers):
+        return DEFAULT_ARCHETYPE
+    counts = {}
+    for key in answers:
+        counts[key] = counts.get(key, 0) + 1
+    best = max(counts.values())
+    winners = [k for k in COPILOT_KEYS if counts.get(k, 0) == best]
+    if len(winners) == 1:
+        return winners[0]
+    # Tie-break 1: the Question 4 answer (answers are indexed per question).
+    if answers[3] in winners:
+        return answers[3]
+    # Tie-break 2: the Question 1 answer.
+    if answers[0] in winners:
+        return answers[0]
+    # Tie-break 3: deterministic default.
+    return DEFAULT_ARCHETYPE
+
+
 # Tutor language preferences (Phase 5.5 Step 4). "auto" resolves per single
 # student message with backend detection; "en"/"ar" pin the reply language.
 SUPPORTED_TUTOR_LANGUAGES = ("auto", "en", "ar")
@@ -55,6 +334,63 @@ TUTOR_DEFAULT_LANGUAGE = "auto"
 
 # Arabic-dominant threshold for the mixed-language heuristic (see below).
 _ARABIC_RATIO = 0.25
+
+# Latin-script Arabic ("Arabizi" - Gulf/Egyptian/Levantine colloquial written
+# in Latin letters, often with digits: 2= hamza, 3= ayn, 5= khaa, 7= haa,
+# 9= qaaf). These tokens contain NO Arabic Unicode characters, so the
+# script-ratio heuristic alone classifies them as English and the reply stops
+# mirroring the student. The lexicon is curated and conservative: only tokens
+# that are rarely valid English words (or strongly Arabizi-marked) are listed,
+# so ordinary English questions like "how are you" never flip to Arabic.
+_ARABIZI_LEXICON = frozenset({
+    # strong signals - not valid English words
+    "ana", "enta", "enti", "enty", "ent", "ehna", "ihna", "ahna", "7na",
+    "msh", "mish", "mesh", "3amla", "3amel", "3amal", "3awz", "3ayz",
+    "3awza", "3ayza", "3ayez", "3awez", "ezay", "ezayek", "ezayak", "3aml",
+    "5alas", "khalas", "tamam", "3andi", "3andak", "3andek", "a3mel",
+    "a3mil", "2olt", "2ol", "ye3ni", "ya3ni", "yani", "hena", "henak",
+    "fein", "feen", "leh", "koll", "kol", "3ayron", "sha3b", "za3lan",
+    "3ayb", "awel", "a5er", "shab3an", "momken", "mumken", "tshar7",
+    "shar7", "sharh", "tshar7ly", "shar7ly", "bel3araby", "tshar7lna",
+    # weaker connective words - count toward the majority when paired with
+    # a strong token or another weak token
+    "ya", "eh", "eih", "ay", "el", "al", "fe", "fi", "3ala", "3alay",
+    "3aleh", "keda", "kida", "kaman", "bardo", "awi", "gamed", "gamedan",
+    "kwayes", "kweis", "7elw", "7elwa", "ghalat", "wa", "be", "2abl",
+    "b3d", "fahm", "faham", "delwa2ty", "halden", "hazel", "shu",
+    "shwaya", "shuwaya", "m3ana", "ma3a", "3alee", "7aga", "haga",
+    "law", "samaht", "samah", "3araby", "el3araby", "bel3arabi", "2owm", "yekon",
+})
+
+_ARABIZI_STRONG = frozenset({
+    "ana", "enta", "enti", "enty", "ent", "ehna", "ihna", "ahna", "7na",
+    "msh", "mish", "mesh", "3amla", "3amel", "3amal", "3awz", "3ayz",
+    "3awza", "3ayza", "3ayez", "3awez", "ezay", "ezayek", "ezayak", "3aml",
+    "5alas", "khalas", "tamam", "3andi", "3andak", "3andek", "a3mel",
+    "a3mil", "2olt", "2ol", "ye3ni", "ya3ni", "yani", "hena", "henak",
+    "fein", "feen", "leh", "koll", "kol", "momken", "mumken", "tshar7",
+    "shar7", "sharh", "tshar7ly", "shar7ly", "bel3araby", "tshar7lna",
+})
+
+
+def detect_arabizi(text):
+    """True when a Latin-script message reads as conversational Arabizi.
+
+    Complements ``detect_language``'s script-ratio logic: Arabizi has no
+    Arabic characters, so callers can use this to accept Arabizi replies as
+    Arabic-mixed output where the script gate would be blind to them.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False
+    tokens = re.findall(r"[a-z0-9]+", text.lower())
+    if not tokens:
+        return False
+    hits = [t for t in tokens if t in _ARABIZI_LEXICON]
+    if not hits:
+        return False
+    strong = sum(1 for t in hits if t in _ARABIZI_STRONG)
+    return (strong >= 2 or (strong >= 1 and len(hits) >= 2)
+            or len(hits) > len(tokens) // 2)
 
 
 def validate_language(value):
@@ -78,6 +414,13 @@ def detect_language(text):
     classify as Arabic when a meaningful ratio of the message is Arabic script;
     hints like the spec examples (arabic framing + English technical terms)
     land safely on Arabic with the ratio chosen below.
+
+    Arabizi (colloquial Arabic in Latin letters, e.g. "ezayek ya nova 3amla
+    eh") contains no Arabic characters at all, so after the script ratio comes
+    back English we fall back to the curated Arabizi lexicon: a strong signal,
+    or a strong signal paired with at least one other Arabizi token (or an
+    Arabizi majority), classifies as Arabic so the reply mirrors the student
+    instead of translating for them.
     """
     if not isinstance(text, str) or not text.strip():
         return "en"
@@ -87,12 +430,15 @@ def detect_language(text):
                  or "\uFE70" <= ch <= "\uFEFF")
     latin = sum(1 for ch in text
                 if ("\u0041" <= ch <= "\u005A") or ("\u0061" <= ch <= "\u007A"))
-    if arabic <= 0:
+    if arabic > 0:
+        total = arabic + latin
+        if total <= 0:
+            return "ar"
+        if (arabic / total) >= _ARABIC_RATIO:
+            return "ar"
         return "en"
-    total = arabic + latin
-    if total <= 0:
-        return "ar"
-    return "ar" if (arabic / total) >= _ARABIC_RATIO else "en"
+    # No Arabic script at all: the message may still be Arabizi.
+    return "ar" if detect_arabizi(text) else "en"
 
 
 def resolve_language(language, message_text):
@@ -181,16 +527,22 @@ def _role_line(role, company=None):
     return title
 
 
+def _verified_skills_line(student):
+    verified = student.get("verified_skills") or []
+    if not verified:
+        return None
+    return "Verified skills: " + ", ".join(v["name"] for v in verified)
+
+
 def _dashboard_context(student, analysis=None):
     analysis = analysis or _analysis(student)
     lines = _profile_lines(student)
     if not analysis:
         lines.append("No target career selected yet. Choose one on Skills & Roles and "
                      "the Tutor will help with the gap plan.")
-        verified = student.get("verified_skills") or []
-        if verified:
-            names = ", ".join(v["name"] for v in verified)
-            lines.append(f"Verified skills: {names}")
+        verified_line = _verified_skills_line(student)
+        if verified_line:
+            lines.append(verified_line)
         lines += _assessment_lines(student)
         return lines
     role = analysis.get("role_title") or ""
@@ -213,6 +565,9 @@ def _dashboard_context(student, analysis=None):
     else:
         lines.append("Recommended next step: you meet every requirement — take the "
                      "Verified Final Assessment to confirm it.")
+    verified_line = _verified_skills_line(student)
+    if verified_line:
+        lines.append(verified_line)
     lines += _assessment_lines(student)
     return lines
 

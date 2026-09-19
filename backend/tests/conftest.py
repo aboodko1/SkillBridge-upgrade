@@ -1,4 +1,6 @@
+import os
 import sqlite3
+import tempfile
 
 import pytest
 
@@ -6,6 +8,47 @@ from app import database, resources, seed
 
 # Use a shared in-memory SQLite connection for all tests so each test starts
 # from freshly seeded data and nothing persists across tests.
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_file_db():
+    """Give tests a seeded file DB instead of the developer's own database.
+
+    A clean checkout has no ``backend/skillbridge.db``. The app's startup handler
+    seeds a missing file DB, but under pytest the in-memory override is active,
+    so that call would double-seed the in-memory database and also create a
+    stray empty file. Pointing ``DB_PATH`` at a seeded temp file keeps the suite
+    hermetic, makes a fresh checkout behave like an installed one, and never
+    touches the developer's data.
+    """
+    original = database.DB_PATH
+    fd, path = tempfile.mkstemp(prefix="skillbridge-test-", suffix=".db")
+    os.close(fd)
+    database.DB_PATH = path
+    try:
+        seed.seed()
+        yield path
+    finally:
+        database.set_db_for_test()
+        database.DB_PATH = original
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+@pytest.fixture(autouse=True)
+def _no_live_providers(monkeypatch):
+    """Keep provider calls disabled during pytest.
+
+    A developer may have ANTHROPIC/OPENAI/NIM keys exported in their shell; the
+    suite must never reach a real provider (or spend tokens) because of that.
+    Tests that exercise provider behavior set the key they need themselves, so
+    their monkeypatch is applied after this fixture and still wins.
+    """
+    from app import genai
+    for name in ("ANTHROPIC_KEY", "OPENAI_KEY", "NIM_KEY"):
+        monkeypatch.setattr(genai, name, None, raising=False)
 
 
 @pytest.fixture()

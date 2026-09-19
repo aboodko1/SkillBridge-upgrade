@@ -148,12 +148,13 @@ export function CareerProgress({ completed, inProgress, notStarted }: {
   )
 }
 
-export function SkillCard({ gap, path, selected, onSelect, onStart }: {
+export function SkillCard({ gap, path, selected, onSelect, onStart, profileSource }: {
   gap: SkillGap
   path?: PersonalizedPath | null
   selected?: boolean
   onSelect: () => void
   onStart: () => void
+  profileSource?: 'claim' | 'verified'
 }) {
   const fallback = gap.status === 'strong' ? 100 : 0
   const progress = topicProgressFor(path, fallback)
@@ -182,7 +183,13 @@ export function SkillCard({ gap, path, selected, onSelect, onStart }: {
         <span>{gap.student_level ? `You: ${gap.student_level}` : 'Missing evidence'}</span>
       </div>
       <div className="lsc-foot">
-        <span className="priority-pill neutral">Current order</span>
+        {profileSource ? (
+          <span className={`prov-pill ${profileSource === 'verified' ? 'prov-verified' : ''}`}>
+            {profileSource === 'verified' ? 'Officially verified' : 'Profile claim'}
+          </span>
+        ) : (
+          <span className="priority-pill neutral">Current order</span>
+        )}
         {canGenerate ? (
           <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); onStart() }}>
             <IconArrowRight size={14} /> {cta}

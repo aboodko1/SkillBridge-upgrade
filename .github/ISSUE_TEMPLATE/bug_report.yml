@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible SkillBridge problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the page, account role, expected behavior, and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Sign in as ...\n2. Open ...\n3. Click ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: theme
+    attributes:
+      label: Appearance
+      options: [Professional light, Professional dark, Casual Pulse light, Casual Pulse dark, System, Not applicable]
+  - type: input
+    id: viewport
+    attributes:
+      label: Browser and viewport
+      placeholder: "Chrome 128, 1440x900"
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Add screenshots and non-secret console or server errors. Never paste credentials.

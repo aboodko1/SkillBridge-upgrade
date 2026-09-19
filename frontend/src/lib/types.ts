@@ -57,6 +57,78 @@ export interface RoleRecord {
   external_id?: string | null
   canonical_role_id?: number | null
   canonical_mapping_updated_at?: string | null
+  family?: string | null
+  source_version?: string | null
+  canonical_status?: string
+  role_key?: string | null
+}
+
+export interface RecentRole {
+  id: number
+  title: string
+  company_name?: string | null
+  family?: string | null
+  source?: string
+  source_version?: string | null
+  is_reference?: number
+  external_id?: string | null
+  viewed_at: string
+}
+
+export interface RecentRolesResponse {
+  roles: RecentRole[]
+}
+
+export interface RoleAlias {
+  id: number
+  alias: string
+  alias_type: string
+  language: string
+  created_at: string
+}
+
+export interface RoleIscoCode {
+  id: number
+  isco_code: string
+  source: string
+  source_ref?: string | null
+  created_at: string
+}
+
+export interface RoleSkillSource {
+  skill_id: number
+  source?: string | null
+  source_uri?: string | null
+  attested_at?: string | null
+}
+
+export interface RoleRelated {
+  parent: RoleRecord | null
+  children: RoleRecord[]
+  siblings: RoleRecord[]
+  supersedes: RoleRecord[]
+  superseded_by: RoleRecord | null
+}
+
+export interface RoleProvenance {
+  role_id: number
+  title: string
+  source: string
+  role_key?: string | null
+  canonical_status: string
+  source_version?: string | null
+  external_id?: string | null
+  is_local_authoring: boolean
+  family?: string | null
+  parent_role_id?: number | null
+  fetched_at?: string | null
+  imported_at?: string | null
+  updated_at?: string | null
+  aliases: RoleAlias[]
+  isco_codes: RoleIscoCode[]
+  skill_sources: Record<number, RoleSkillSource>
+  mapping: RoleMappingTarget | null
+  related: RoleRelated
 }
 
 export interface RoleMappingTarget {
@@ -101,6 +173,7 @@ export interface RolesResponse {
   is_company: boolean
   company_id: number | null
   location?: string
+  role_data_version?: string | null
 }
 
 export interface SelfReportedSkill {
@@ -143,6 +216,9 @@ export interface SkillGap {
   student_level: string | null
   status: 'strong' | 'gap' | 'missing'
   verified: boolean
+  /** Where the skill lives in the student's profile: 'claim' = self-reported,
+   *  'verified' = officially verified. Absent for role-required skill gaps. */
+  profileSource?: 'claim' | 'verified'
 }
 
 export interface BadgeInfo {
@@ -168,6 +244,27 @@ export interface ActivitySummary {
   leaderboard: { status: string; message?: string }
 }
 
+// Canonical score registry. One key = one metric = one name/formula/value across
+// every page. `target_requirement_coverage` is the level-aware, partial-credit
+// metric (the Dashboard ring). `career_readiness` is the stricter all-or-nothing
+// share. `verified_evidence_coverage` counts only passed Final Assessments.
+// `catalogue_similarity` is name-overlap only and is never a competence claim.
+export type CanonicalMetricKey =
+  | 'target_requirement_coverage'
+  | 'career_readiness'
+  | 'verified_evidence_coverage'
+  | 'catalogue_similarity'
+
+export interface MetricDefinition {
+  key: CanonicalMetricKey
+  label: string
+  short_label: string
+  formula: string
+  evidence: string
+  rounding: string
+  complete_when: string
+}
+
 export interface Analysis {
   student_id: number
   role_id: number
@@ -176,6 +273,10 @@ export interface Analysis {
   match_score: number
   skill_gaps: SkillGap[]
   gap_count: number
+  metrics?: Partial<Record<CanonicalMetricKey, number>>
+  metric_definitions?: Partial<Record<CanonicalMetricKey, MetricDefinition>>
+  all_requirements_met?: boolean
+  missing_requirements?: string[]
 }
 
 export interface LearningResource {
@@ -251,9 +352,22 @@ export interface TutorMessage {
   id: number
   skill_id: number | null
   tutor_id?: string | null
+  conversation_id?: number | null
   role: 'user' | 'assistant'
   content: string
   created_at: string
+}
+
+export interface TutorConversation {
+  id: number
+  student_id: number
+  tutor_id: string
+  title: string
+  created_at: string
+  updated_at: string
+  message_count?: number
+  last_message_at?: string | null
+  preview?: string | null
 }
 
 export interface InterviewReply {
@@ -451,6 +565,18 @@ export interface RecentJob {
   is_expired?: boolean
   expires_at?: string
   listed_days_ago?: number
+  fingerprint?: string
+  work_type?: string
+  listing_status?: string
+  provider?: string
+  provider_job_id?: string
+  apply_url?: string
+  description_excerpt?: string
+  published_date?: string
+  fetched_at?: string
+  link_state?: string
+  link_reason?: string
+  provenance?: Record<string, { value?: unknown; basis?: string }>
 }
 
 export type ProviderStatus = 'ok' | 'failed' | 'skipped'
@@ -461,6 +587,7 @@ export interface ProviderReport {
   count?: number
   reason?: string
   error?: string
+  health?: string
 }
 
 export interface RecentJobsResponse {
@@ -468,6 +595,104 @@ export interface RecentJobsResponse {
   jobs: RecentJob[]
   groups?: { local_count: number; broader_count: number; other_count: number }
   providers?: ProviderReport[]
+  status?: 'fresh' | 'cached' | 'stale_fallback' | 'unavailable'
+  cache?: { hits?: number; misses?: number; avg_fetch_ms?: number }
+}
+
+export interface JobLinkReport {
+  id: number
+  fingerprint: string
+  url: string
+  title: string
+  provider: string
+  reported_at: string
+}
+
+export interface JobsHealthPayload {
+  jobs?: {
+    providers_total?: number
+    providers_available?: string[]
+    providers_health?: Record<string, string>
+    last_error_by_provider?: Record<string, string>
+    last_build_at?: string | null
+    cache?: { hits?: number; misses?: number; avg_fetch_ms?: number }
+  }
+}
+
+export type JobStage = 'saved' | 'preparing' | 'applied' | 'screening' | 'interview' | 'offer' | 'hired' | 'rejected' | 'withdrawn' | 'archived_or_expired'
+
+export const JOB_STAGES: JobStage[] = ['saved', 'preparing', 'applied', 'screening', 'interview', 'offer', 'hired', 'rejected', 'withdrawn', 'archived_or_expired']
+
+export interface TrackerStageHistory {
+  id: number
+  stage: JobStage
+  changed_from: JobStage | null
+  note: string
+  created_at: string
+}
+
+export interface TrackedJob {
+  id: number
+  student_id: number
+  fingerprint: string
+  title: string
+  company: string
+  url: string
+  apply_url: string
+  location: string
+  country: string
+  provider?: string
+  source?: string
+  match_pct?: number
+  work_type?: string
+  seniority?: string
+  listing_status?: string
+  link_state?: string
+  is_expired: boolean
+  stage: JobStage
+  note: string
+  interview_date?: string
+  application_deadline?: string
+  created_at: string
+  updated_at: string
+  history: TrackerStageHistory[]
+}
+
+export interface TrackerResponse {
+  items: TrackedJob[]
+  counts: Record<JobStage, number>
+}
+
+export interface SaveJobRequest {
+  fingerprint: string
+  location?: string
+  country?: string
+  market?: string
+}
+
+// ---- Phase Q: prepare-for-job readiness (backend prepare_job_view) ----
+
+export type JobPrepareSkillStatus = 'verified' | 'self_reported' | 'gap' | 'no_path'
+
+export interface JobPrepareSkill {
+  name: string
+  skill_id: number | null
+  status: JobPrepareSkillStatus
+  student_level?: string
+  verified_at?: string
+}
+
+export interface JobPreparePayload {
+  job: {
+    title: string
+    company: string
+    location_label?: string | null
+    match_pct?: number | null
+    apply_url: string
+    listing_status?: string | null
+    provider?: string | null
+  }
+  skills: JobPrepareSkill[]
 }
 
 export interface EscoOccupation {
@@ -517,6 +742,156 @@ export interface RoleRecommendationsResponse {
   esco_status: 'ok' | 'unavailable'
   source_counts: Partial<Record<RecommendationSource, number>>
 }
+
+// ---- Phase J: explainable match breakdowns (backend match_explain.py) ----
+
+export interface MatchAdjustmentLine {
+  label: string
+  label_long?: string
+  points: number
+}
+
+export interface TargetRoleRequirement {
+  skill_id: number
+  skill_name: string
+  category?: string | null
+  required_level: string | null
+  student_level: string | null
+  status: string
+  evidence: 'verified' | 'self_reported' | 'none'
+  contribution_points: number
+  max_points: number
+}
+
+export interface TargetRoleMatchBreakdown {
+  formula: string
+  version: string
+  as_of: string
+  role_data_version: string
+  role_title: string | null
+  company?: string | null
+  requirements: TargetRoleRequirement[]
+  total_points: number
+  max_points: number
+  raw_percent: number
+  displayed_percent: number
+  adjustment_lines: MatchAdjustmentLine[]
+  evidence_precedence: string
+  missing_data: string[]
+  next_action: string
+}
+
+export interface RoleMatchRequirement {
+  name: string
+  required_level: string | null
+  student_level: string | null
+  evidence: 'verified' | 'self_reported' | 'none'
+  essential: boolean
+  weight: number
+  level_factor: number | null
+  credit: number
+  is_discovery: boolean
+  verified: boolean
+}
+
+export interface RoleMatchBreakdown {
+  formula: string
+  version: string
+  as_of: string
+  role_data_version: string
+  role_id: number | null
+  external_id?: string | null
+  title: string | null
+  source: string
+  company_name?: string | null
+  requirements: RoleMatchRequirement[]
+  total_weight: number
+  earned_weight: number
+  raw_percent: number
+  displayed_percent: number
+  adjustment_lines: MatchAdjustmentLine[]
+  matched_skills: MatchedSkillDetail[]
+  missing_key_skills: string[]
+  verified_matches: string[]
+  evidence_precedence: string
+  missing_data: string[]
+  next_action: string
+}
+
+export interface JobMatchRelevance {
+  final: number
+  base_points: number
+  family_bonus: number
+  family_cap_70: number | null
+  family_top_bump: number | null
+  title_fallback_boost: number | null
+  minor_bonus: number
+  verified_bonus: number
+  fresh_bonus: number
+  title_family_hit: boolean
+}
+
+export interface JobMatchExperience {
+  points: number
+  label: string
+  job_seniority: number
+  student_seniority: number
+}
+
+export interface JobMatchLocation {
+  tier: 'city' | 'country' | 'country_remote' | 'global_remote' | 'unknown' | 'different'
+  points: number
+  label: string
+}
+
+export interface JobMatchMatches {
+  matched: string[]
+  title_hits: string[]
+  minor_hits: string[]
+  verified_hits: string[]
+}
+
+export interface JobMatchConstraints {
+  location: { tier: string; label: string; supported: boolean }
+  work_type: { value: string; supported: boolean }
+  seniority: { job: number; student: number; supported: boolean }
+}
+
+export interface JobMatchBreakdown {
+  formula: string
+  version: string
+  as_of: string
+  role_data_version: string
+  role_title: string
+  job: {
+    title?: string
+    company?: string
+    location_label?: string | null
+    work_type?: string | null
+    seniority?: string | null
+    listed_days_ago?: number | null
+    listing_status?: string | null
+    apply_url?: string | null
+  }
+  components: {
+    relevance: JobMatchRelevance
+    experience: JobMatchExperience
+    location: JobMatchLocation
+  }
+  lines: MatchAdjustmentLine[]
+  displayed_percent: number
+  matches: JobMatchMatches
+  verified_skill_hits: string[]
+  other_matched_keywords: string[]
+  constraints: JobMatchConstraints
+  evidence_note: string
+  next_action: string
+}
+
+export type MatchBreakdownPayload =
+  | TargetRoleMatchBreakdown
+  | RoleMatchBreakdown
+  | JobMatchBreakdown
 
 export interface CareerRoadmapSkill {
   name: string
@@ -614,6 +989,11 @@ export interface PersonalizedPath {
   student_id: number
   skill_id: number
   diagnostic_id: number
+  // A path belongs to one diagnostic. When a newer completed diagnostic exists
+  // the path is "stale": its gaps must not override the newer diagnostic, and
+  // the UI must label it rather than silently showing old advice as current.
+  latest_diagnostic_id?: number | null
+  stale?: boolean
   required_level: string
   items: PersonalizedPathItem[]
   stages: PersonalizedStage[]
@@ -636,6 +1016,8 @@ export interface FinalAssessmentStatus {
   required_level: string
   diagnostic_completed: boolean
   path_exists: boolean
+  path_stale?: boolean
+  latest_diagnostic_id?: number | null
   has_blueprint: boolean
   readiness: FinalAssessmentReadiness
 }
@@ -718,11 +1100,24 @@ export interface PracticeTaskQuestion {
   difficulty?: string
 }
 
+/**
+ * Non-executing structural review of a submitted practice answer. It never runs
+ * the code, never changes the practice score and never verifies a skill — it only
+ * reports whether the expected structure is present so the learning agent may
+ * offer a Mini Check.
+ */
+export interface PracticeStaticCheck {
+  status: 'looks_structurally_sound' | 'needs_fix'
+  note: string
+  checks: string[]
+}
+
 export interface PracticeTask {
   source: PracticeTaskSource
   source_attempt_id: number | null
   type: string
   questions: PracticeTaskQuestion[]
+  static_check?: PracticeStaticCheck | null
 }
 
 export interface RemediationReview {
@@ -775,6 +1170,35 @@ export interface Lesson {
   completed_at: string | null
 }
 
+// ------------------------------------------------------------------ learning agent
+
+/**
+ * Observable next-step vocabulary of the learning orchestrator. A decision is
+ * evidence, never a grade: it can never complete a topic or verify a skill.
+ */
+export type LearningAgentActionType =
+  | 'EXPLAIN'
+  | 'PRACTICE'
+  | 'GIVE_HINT'
+  | 'REVIEW_PREREQUISITE'
+  | 'MINI_CHECK'
+  | 'ADVANCE'
+  | 'REQUEST_REASSESSMENT'
+
+export interface LearningAgentEvidence {
+  kind: string
+  detail: string
+}
+
+export interface LearningAgentDecision {
+  action_type: LearningAgentActionType
+  topic_id: string | null
+  evidence: LearningAgentEvidence[]
+  decision_reason: string
+  next_step: string
+  objective: string
+}
+
 // ------------------------------------------------------------------ global AI copilot context
 
 export type CopilotPage = 'dashboard' | 'skills_roles' | 'learning' | 'jobs' | 'career_roadmap' | 'mock_interview' | 'assessment' | 'scenarios'
@@ -796,6 +1220,65 @@ export interface TutorPreferences {
   tutor_id: string
   mode: string
   language: TutorLanguage
+}
+
+// ------------------------------------------------------------------ copilot onboarding & config
+
+export type CopilotArchetypeKey = 'nova' | 'axel' | 'sage' | 'vex'
+export type CopilotOnboardingState = 'not_started' | 'completed' | 'skipped'
+export type CopilotOnboardingSource = 'quiz' | 'skip' | 'manual_change'
+
+export interface CopilotOption {
+  key: CopilotArchetypeKey
+  name: string
+  title: string
+  voice_agent_id: string
+  capabilities: Record<string, boolean>
+}
+
+export interface CopilotConfigRecord {
+  choice: CopilotArchetypeKey
+  voice_agent_id: string
+  name: string
+  title: string
+  role: string
+  specialty: string
+  origin: string
+  traits: string[]
+  behavior: string
+  style: string
+  capabilities: Record<string, boolean>
+  updated_at?: string
+}
+
+export interface CopilotOnboardingStateResponse {
+  state: CopilotOnboardingState
+  source: CopilotOnboardingSource
+  answered_at: string | null
+  configured: boolean
+  copilot: CopilotConfigRecord | null
+  options: CopilotOption[]
+}
+
+export interface CopilotOnboardingSubmit {
+  answers?: string[]
+  skipped?: boolean
+  choice?: string
+}
+
+export interface CopilotOnboardingResponse {
+  state: CopilotOnboardingState
+  source: CopilotOnboardingSource
+  assigned: string
+  answered_at: string | null
+  copilot: CopilotConfigRecord
+  options: CopilotOption[]
+}
+
+export interface CopilotConfigResponse {
+  configured: boolean
+  copilot: CopilotConfigRecord | null
+  options: CopilotOption[]
 }
 
 // ------------------------------------------------------------------ practice scenarios

@@ -87,6 +87,11 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "==> Installing frontend dependencies" -ForegroundColor Cyan
 
+# Use a writable, project-local npm cache so a root-owned global cache never
+# breaks the install (no sudo / ownership changes required).
+$env:npm_config_cache = Join-Path $Root ".npm-cache"
+New-Item -ItemType Directory -Force -Path $env:npm_config_cache | Out-Null
+
 Push-Location $Frontend
 npm.cmd install
 if ($LASTEXITCODE -ne 0) {

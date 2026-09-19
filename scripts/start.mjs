@@ -19,7 +19,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { ROOT, log, ensureVenv, npmCmd, run } from './lib.mjs'
+import { ROOT, log, ensureVenv, npmCmd, npmEnv, run } from './lib.mjs'
 
 const args = new Set(process.argv.slice(2))
 const RESET = args.has('--reset')
@@ -120,7 +120,11 @@ async function main() {
     log(`  Backend:  http://localhost:${PORT}`)
     log(`  Frontend: http://localhost:5173 (Vite dev server with live reload)`)
     backend(PORT)
-    spawn(npmCmd(), ['run', 'dev'], { cwd: path.join(ROOT, 'frontend'), stdio: 'inherit' })
+    spawn(npmCmd(), ['run', 'dev'], {
+      cwd: path.join(ROOT, 'frontend'),
+      stdio: 'inherit',
+      env: { ...process.env, ...npmEnv() },
+    })
   } else {
     log('SkillBridge ready')
     log(`  Open: ${`http://localhost:${PORT}`}`)

@@ -1,12 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../AppContext'
 import { api } from '../lib/api'
 import { RELOCATION_MARKETS, marketLabel } from '../lib/markets'
-import type { RoleRecord, Student, Skill, RolesResponse, EscoOccupation, Analysis, RoleRecommendation, RoleRecommendationsResponse, SavedRolesResponse, ScenarioLibrary, RoleMappingMatch, RoleMappingTarget, RoleMappingEvent } from '../lib/types'
-import { IconPlus, IconEdit, IconTrash, IconUpload, IconSearch, IconCheck, IconTarget, IconBookmark, IconCompare, IconBack, IconShield, IconBolt, IconArrowRight } from '../components/Icons'
+import type { RoleRecord, Student, Skill, RolesResponse, EscoOccupation, Analysis, RoleRecommendation, RoleRecommendationsResponse, SavedRolesResponse, ScenarioLibrary, RoleMappingMatch, RoleMappingTarget, RoleMappingEvent, RecentRole, RoleProvenance, RecentJob, RecentJobsResponse, CanonicalMetricKey } from '../lib/types'
+import { IconPlus, IconEdit, IconTrash, IconUpload, IconSearch, IconCheck, IconAlert, IconTarget, IconBookmark, IconCompare, IconBack, IconShield, IconBolt, IconArrowRight } from '../components/Icons'
 import { SkillTag, GapPill } from '../components/widgets'
 import { IconRoles } from '../components/Icons'
 import { ConfirmModal, ToastRegion, useToast } from '../components/ui'
+import MatchBreakdown from '../components/MatchBreakdown'
+import { humanizeTopicLabel } from '../lib/topicLabels'
 
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced']
 
@@ -69,17 +71,19 @@ function useRoles() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [roleDataVersion, setRoleDataVersion] = useState<string | null>(null)
   useEffect(() => {
     Promise.all([api.roles(), api.skills()])
       .then(([res, skillsRes]: [RolesResponse, Skill[]]) => {
         setRoles(res.roles || [])
         setCatalog(res.catalog || [])
         setSkills(skillsRes || [])
+        setRoleDataVersion(res.role_data_version || null)
         setLoaded(true)
       })
       .catch((e) => { console.error('[roles] load failed:', e); setLoadError(e.message || String(e)) })
   }, [])
-  return { roles, setRoles, catalog, skills, loaded, loadError }
+  return { roles, setRoles, catalog, skills, loaded, loadError, roleDataVersion }
 }
 
 type SkillChip = { name: string; level: string; matched: boolean }
@@ -126,6 +130,118 @@ function roleLocation(r: RoleRecord): string {
   return typeof loc === 'string' && loc.trim() ? loc.trim() : ''
 }
 
+// ---- Phase L role-explorer helpers ----
+
+// Family is an additive real column on roles (Phase D). A role without one is
+// honestly grouped under "Unclassified" — never invented.
+function roleFamily(r: RoleRecord): string {
+  const f = r.family?.trim()
+  return f || 'Unclassified'
+}
+
+// Provenance label for a role's meta line, derived only from real role data.
+// ESCO rows are obvious from `source`; catalogue reference rows from
+// `is_reference`; anything else is a company-authored opening.
+function sourceProvenance(r: { source?: string; is_reference?: number | boolean; company_name?: string | null }, dest?: string): string {
+  if (r.source === 'esco') return 'ESCO import'
+  if (r.is_reference || dest === 'catalog') return r.source === 'catalog' ? 'Canonical catalogue' : 'Reference profile'
+  return r.company_name || 'Company role'
+}
+
+function sourceVersionMeta(r: { source_version?: string | null }): string {
+  const v = r.source_version?.trim()
+  return v ? ` · v${v}` : ''
+}
+
+// Human time-ago for "viewed X minutes ago" honesty (approximate, newest => "just now").
+function timeAgo(iso: string): string {
+  if (!iso) return 'recently'
+  const t = new Date(iso).getTime()
+  if (!Number.isFinite(t)) return 'recently'
+  const ms = Date.now() - t
+  if (ms < 60 * 1000) return 'just now'
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} hr${hrs === 1 ? '' : 's'} ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`
+  const months = Math.floor(days / 30)
+  return `${months} month${months === 1 ? '' : 's'} ago`
+}
+
+type ExplorerTab = 'recommended' | 'all' | 'saved' | 'market' | 'recents'
+
+const EXPLORER_KEYS: Record<string, ExplorerTab> = {
+  recommended: 'recommended', all: 'all', saved: 'saved', market: 'market', recents: 'recents',
+}
+
+// Phase L recently-viewed row: an honest, compact view record joined to the
+// role's current title/company. Actions resolve the full RoleRecord from the
+// already-loaded library; the row alone never pretends to be a live role.
+function RecentRoleRow({ rr, role, saved, cmp, onDetails, onToggleSave, onSelect, onCompare }: {
+  rr: RecentRole
+  role?: RoleRecord
+  saved: boolean
+  cmp: boolean
+  onDetails: () => void
+  onToggleSave: () => void
+  onSelect: () => void
+  onCompare: () => void
+}) {
+  const enabled = role !== undefined
+  return (
+    <div className="srb-recent-row">
+      <div className="srb-recent-main">
+        <button type="button" className="srb-recent-title" onClick={onDetails}>{rr.title}</button>
+        <p className="srb-role-meta">
+          {sourceProvenance(rr, role && role.is_reference ? 'catalog' : undefined)}{sourceVersionMeta(rr)}
+          {rr.company_name ? ` · ${rr.company_name}` : ''}
+          {rr.family ? ` · ${rr.family}` : ''}
+        </p>
+      </div>
+      <span className="srb-recent-when">{timeAgo(rr.viewed_at)}</span>
+      <div className="srb-recent-actions">
+        <button type="button" className={`srb-recent-act srb-save-btn ${saved ? 'on' : ''}`} disabled={!enabled} onClick={onToggleSave}>{saved ? 'Saved' : 'Save'}</button>
+        <button type="button" className={`srb-recent-act ${cmp ? 'on' : ''}`} disabled={!enabled} onClick={onCompare}>{cmp ? 'In compare' : 'Compare'}</button>
+        <button type="button" className="srb-recent-act" disabled={!enabled} onClick={onSelect}>Set target</button>
+        <button type="button" className="srb-recent-act" onClick={onDetails}>Details</button>
+      </div>
+    </div>
+  )
+}
+
+// URL/deep-link state for the explorer (Phase L): an additive, hash-based
+// query the page reads on mount and re-applies on back/forward. Only strings
+// that are correct today carry weight; malformed input is ignored, never a crash.
+function parseExplorerHash(hash: string): { tab?: ExplorerTab; q?: string; fam?: string[] } {
+  const out: { tab?: ExplorerTab; q?: string; fam?: string[] } = {}
+  if (!hash || !hash.startsWith('#explorer')) return out
+  const params = new URLSearchParams(hash.slice('#explorer'.length))
+  const t = params.get('t')
+  if (t && EXPLORER_KEYS[t]) out.tab = EXPLORER_KEYS[t]
+  const q = params.get('q')
+  if (q != null) out.q = q
+  const fam = params.get('fam')
+  if (fam) out.fam = fam.split(',').map((s) => s.trim()).filter(Boolean)
+  return out
+}
+
+function serializeExplorer(tab: ExplorerTab, q: string, fam: string[]): string {
+  const p = new URLSearchParams()
+  if (tab !== 'recommended') p.set('t', tab)
+  if (q) p.set('q', q)
+  if (fam.length) p.set('fam', fam.join(','))
+  const s = p.toString()
+  return s ? `#explorer?${s}` : '#explorer'
+}
+
+type ExplorerFilters = { location: string[]; level: string[]; category: string[]; skill: string[]; family: string[] }
+
+// Canonical `catalogue_similarity` (name-only overlap) for catalogue roles that
+// the recommendation engine did not score. This is EXPLICITLY not a competence
+// or verification claim: it ignores levels and never counts as a requirement
+// being met. Every surface that shows it must label it "Catalogue similarity".
 function matchPctOf(r: RoleRecord, cvSkillNames: string[]): number {
   if (r.required_skills.length === 0) return 0
   const present = r.required_skills.reduce((n, s) => n + (cvSkillNames.includes(s.name.toLowerCase().trim()) ? 1 : 0), 0)
@@ -139,7 +255,13 @@ function matchPctOf(r: RoleRecord, cvSkillNames: string[]): number {
 // reason text) whenever the role appears there; otherwise falls back to the
 // same required-skill overlap math the backend uses. Every surface (cards,
 // drawer and compare) reads this helper so a role always shows one match.
-export interface RoleMatchInfo { pct: number | null; reason?: string; confidence?: string }
+export interface RoleMatchInfo {
+  pct: number | null
+  reason?: string
+  confidence?: string
+  metric?: CanonicalMetricKey
+  metricLabel?: string
+}
 
 function backendRecMap(recs: RoleRecommendationsResponse | null): Map<number, RoleRecommendation> {
   const m = new Map<number, RoleRecommendation>()
@@ -151,9 +273,15 @@ function backendRecMap(recs: RoleRecommendationsResponse | null): Map<number, Ro
 function displayMatchOf(role: RoleRecord, cvSkillNames: string[], recByRole: Map<number, RoleRecommendation>): RoleMatchInfo {
   const rec = recByRole.get(role.id)
   if (rec && rec.match_score != null) {
-    return { pct: Math.round(rec.match_score), reason: rec.reason, confidence: rec.confidence }
+    return {
+      pct: Math.round(rec.match_score), reason: rec.reason, confidence: rec.confidence,
+      metric: 'target_requirement_coverage', metricLabel: 'Requirement coverage',
+    }
   }
-  return { pct: cvSkillNames.length > 0 ? matchPctOf(role, cvSkillNames) : null }
+  return {
+    pct: cvSkillNames.length > 0 ? matchPctOf(role, cvSkillNames) : null,
+    metric: 'catalogue_similarity', metricLabel: 'Catalogue similarity',
+  }
 }
 
 function roleSourceLabel(r: RoleRecord): string {
@@ -224,7 +352,7 @@ function RoleCard({ r, selected, onSelect, selectable, dest, chips }: {
 }) {
   const matchedCount = chips?.filter((c) => c.matched).length ?? 0
   return (
-    <div className={`sro3-role ${selected ? 'sro3-role-selected' : ''}`}>
+    <div className={`sro3-role hcard-opportunity ${selected ? 'sro3-role-selected' : ''}`}>
       <div className="sro3-role-top">
         <div className="sro3-role-head">
           <div className="sro3-role-title">
@@ -248,7 +376,7 @@ function RoleCard({ r, selected, onSelect, selectable, dest, chips }: {
         {chips && chips.length > 0 && chips.map((c) => (
           <span key={c.name} className={`sro3-skill ${c.matched ? 'on' : 'off'}`}>
             {c.matched ? <IconCheck size={11} /> : <span className="sro3-dot" />}
-            {c.name} <span className="lv">{c.level}</span>
+            {humanizeTopicLabel(c.name)} <span className="lv">{c.level}</span>
           </span>
         ))}
         {!chips && r.required_skills.map((s) => (
@@ -274,12 +402,12 @@ function RoleCard({ r, selected, onSelect, selectable, dest, chips }: {
 }
 
 // ------------------------------------------------------------------ Recommended target role card
-function RecommendationCard({ rec, selected, onSelect, busy, saved, onToggleSave }: {
-  rec: RoleRecommendation; selected: boolean; onSelect: () => void; busy: boolean; saved: boolean; onToggleSave: () => void
+function RecommendationCard({ rec, selected, onSelect, busy, saved, onToggleSave, studentId }: {
+  rec: RoleRecommendation; selected: boolean; onSelect: () => void; busy: boolean; saved: boolean; onToggleSave: () => void; studentId?: number
 }) {
   const srcLabel = rec.source === 'company' ? 'Company role' : rec.source === 'catalog' ? 'Catalog' : 'ESCO'
   return (
-    <div className={`sro3-role ${selected ? 'sro3-role-selected' : ''}`}>
+    <div className={`sro3-role hcard-opportunity ${selected ? 'sro3-role-selected' : ''}`}>
       <div className="sro3-role-top">
         <div className="sro3-role-head">
           <div className="sro3-role-title">
@@ -302,7 +430,7 @@ function RecommendationCard({ rec, selected, onSelect, busy, saved, onToggleSave
         {(rec.matched_skills || []).slice(0, 12).map((m) => (
           <span key={m.name} className="sro3-skill on">
             <IconCheck size={11} />
-            {m.name}
+{humanizeTopicLabel(m.name)}
             {m.verified ? <span className="lv">✓ verified</span> : <span className="lv">{m.student_level || ''}</span>}
           </span>
         ))}
@@ -327,6 +455,10 @@ function RecommendationCard({ rec, selected, onSelect, busy, saved, onToggleSave
           {busy ? 'Selecting…' : selected ? '✓ Target Career' : 'Select as target'}
         </button>
       </div>
+      {studentId != null && (
+        <MatchBreakdown kind="role" pct={rec.match_score}
+          onRequest={() => api.roleMatchBreakdown(studentId, rec.role_id, rec.external_id)} />
+      )}
     </div>
   )
 }
@@ -334,24 +466,33 @@ function RecommendationCard({ rec, selected, onSelect, busy, saved, onToggleSave
 // ------------------------------------------------------------------ New design primitives (redesigned Skills & Roles)
 function MatchRing({ pct, size = 88, label }: { pct: number | null; size?: number; label?: string }) {
   const safe = pct == null ? 0 : Math.max(0, Math.min(100, Math.round(pct)))
+  const visibleLabel = label
+    ? /similarity/i.test(label)
+      ? 'similarity'
+      : /coverage/i.test(label)
+        ? 'coverage'
+        : label
+    : ''
   return (
     <div
       className="srb-match-ring"
       style={{ '--pct': safe, width: size, height: size } as React.CSSProperties}
       role="img"
-      aria-label={pct == null ? 'Match not computed yet' : `${safe}% skill match`}
+      title={label ? `${label}: ${pct == null ? 'not computed yet' : `${safe}%`}` : undefined}
+      aria-label={pct == null ? 'Match not computed yet' : `${safe}% ${label || 'requirement coverage'}`}
     >
       <div className="srb-match-inner">
         {pct == null ? <span className="srb-match-none">—</span> : <strong>{safe}%</strong>}
-        {label && <span className="srb-match-label">{label}</span>}
+        {label && <span className="srb-match-label">{visibleLabel}</span>}
       </div>
     </div>
   )
 }
 
-function RoleLibraryCard({ r, pct, selected, dest, chips, statusCounts, noCvSkills, saved, cmp, onCompare, onSelect, onDetails, onToggleSave }: {
+function RoleLibraryCard({ r, pct, metricLabel, selected, dest, chips, statusCounts, noCvSkills, saved, cmp, onCompare, onSelect, onDetails, onToggleSave }: {
   r: RoleRecord
   pct: number
+  metricLabel?: string
   selected: boolean
   dest?: string
   chips?: SkillChip[]
@@ -373,23 +514,23 @@ function RoleLibraryCard({ r, pct, selected, dest, chips, statusCounts, noCvSkil
           <span className={`chip ${dest === 'catalog' ? 'chip-catalog' : 'chip-company'}`}>{dest === 'catalog' ? 'Catalog' : 'Company'}</span>
           <button type="button" className="srb-role-title" onClick={onDetails}>{r.title}</button>
           <p className="srb-role-meta">
-            {dest === 'catalog' ? 'Reference profile' : r.company_name || 'Company role'}
+            {sourceProvenance(r, dest)}{sourceVersionMeta(r)}
             {loc ? ` · ${loc}` : noCvSkills ? ' · Remote' : ' · Not specified'}
             {` · ${roleExperience(r)}`}
           </p>
         </div>
-        <MatchRing pct={noCvSkills ? null : pct} size={72} />
+        <MatchRing pct={noCvSkills ? null : pct} size={72} label={metricLabel} />
       </header>
       {r.description && <p className="srb-role-desc">{r.description.length > 140 ? `${r.description.slice(0, 137)}…` : r.description}</p>}
       {noCvSkills ? (
         <div className="srb-chiprow">
-          {r.required_skills.slice(0, 5).map((s) => <span className="skill-tag" key={s.name}>{s.name}</span>)}
+          {r.required_skills.slice(0, 5).map((s) => <span className="skill-tag" key={s.name}>{humanizeTopicLabel(s.name)}</span>)}
           {r.required_skills.length > 5 && <span className="muted small">+{r.required_skills.length - 5} more</span>}
         </div>
       ) : (
         <>
           <div className="srb-chiprow">
-            {shown.map((c) => <span className={`srb-schip ${c.matched ? 'have' : ''}`} key={c.name}>{c.name}{c.matched ? ' ✓' : ''}</span>)}
+            {shown.map((c) => <span className={`srb-schip ${c.matched ? 'have' : ''}`} key={c.name}>{humanizeTopicLabel(c.name)}{c.matched ? ' ✓' : ''}</span>)}
             {(chips?.length ?? 0) > shown.length && <span className="muted small">+{(chips?.length ?? 0) - shown.length} more</span>}
           </div>
           <div className="srb-pills">
@@ -464,12 +605,12 @@ function RoleDetailsModal({ role, noCvSkills, profileByName, cvSkillNames, selec
         </header>
         {role.description && <p className="srb-modal-desc">{role.description}</p>}
         <div className="srb-modal-match">
-          <MatchRing pct={noCvSkills ? null : pct} size={92} />
+          <MatchRing pct={noCvSkills ? null : pct} size={92} label="Catalogue similarity" />
           <div>
-            <p className="srb-eyebrow">Skill match</p>
+            <p className="srb-eyebrow">Catalogue similarity</p>
             {noCvSkills
               ? <p className="small muted">Upload a CV to measure your match against this role.</p>
-              : <p className="small muted">{(rows.length - learningGaps.length)} of {rows.length} required skills are on your profile. Verified skills outrank self-reported ones.</p>}
+              : <p className="small muted">{(rows.length - learningGaps.length)} of {rows.length} required skill names are on your profile. This is name overlap only — it ignores levels and is not a verification claim. Verified skills outrank self-reported ones.</p>}
           </div>
         </div>
         <div className="srb-modal-section">
@@ -478,9 +619,13 @@ function RoleDetailsModal({ role, noCvSkills, profileByName, cvSkillNames, selec
             {rows.map(({ s, status }) => (
               <li key={s.name} className={`srb-skill ${status}`}>
                 <span className="srb-dot" aria-hidden="true" />
-                <span className="srb-skill-name">{s.name} <small>{s.required_level}</small></span>
+                <span className="srb-skill-name">{humanizeTopicLabel(s.name)} <small>{s.required_level}</small></span>
                 <span className="srb-skill-state">
-                  {status === 'have' ? '✓ you have this' : status === 'developing' ? '⚠ leveling up' : '○ missing'}
+                  {status === 'have'
+                    ? <><IconCheck size={12} /> you have this</>
+                    : status === 'developing'
+                      ? <><IconAlert size={12} /> leveling up</>
+                      : <><span className="fa-dot" aria-hidden="true" /> missing</>}
                 </span>
               </li>
             ))}
@@ -494,7 +639,7 @@ function RoleDetailsModal({ role, noCvSkills, profileByName, cvSkillNames, selec
                 <button type="button" className="btn btn-sm srb-btn-outline" key={s.name}
                   onClick={() => s.skill_id ? onLearn(s.skill_id) : undefined}
                   disabled={!s.skill_id}>
-                  Learn {s.name}
+                  Learn {humanizeTopicLabel(s.name)}
                 </button>
               ))}
             </div>
@@ -519,17 +664,23 @@ function RoleDetailsModal({ role, noCvSkills, profileByName, cvSkillNames, selec
 // ------------------------------------------------------------------ Role detail drawer (Phase 2)
 // Replaces the old modal: a right-side drawer with source, match explanation,
 // covered/missing skills, honest effort + scenario + relevant-jobs blocks.
-function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, selected, busy, saved, inCompare, scenarioNote, onClose, onSelect, onToggleSave, onCompare, onLearn, onVerifySkill, onPracticeRole, practiceEnabled, recommendedSkillId, recommendedSkillName }: {
+function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, evidence, selected, busy, saved, inCompare, scenarioNote, provenance, provenanceState, onOpenRole, jobsFeed, jobsFeedState, onClose, onSelect, onToggleSave, onCompare, onLearn, onVerifySkill, onPracticeRole, practiceEnabled, recommendedSkillId, recommendedSkillName }: {
   role: RoleRecord
   others: RoleRecord[]
   match: RoleMatchInfo
   noCvSkills: boolean
   profileByName: Map<string, string>
+  evidence: { verified: Set<string>; self: Set<string> }
   selected: boolean
   busy: boolean
   saved: boolean
   inCompare: boolean
   scenarioNote: string | null
+  provenance: RoleProvenance | null
+  provenanceState: 'idle' | 'loading' | 'ready' | 'error'
+  onOpenRole: (role: RoleRecord) => void
+  jobsFeed: RecentJobsResponse | null
+  jobsFeedState: 'idle' | 'loading' | 'ready' | 'nocv'
   onClose: () => void
   onSelect: () => void
   onToggleSave: () => void
@@ -541,9 +692,14 @@ function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, sel
   recommendedSkillId: number | null
   recommendedSkillName: string | null
 }) {
-  const rows = role.required_skills.map((s) => ({ s, status: statusOfSkill(s, profileByName) }))
+  const evidenceOf = (name: string) => {
+    const n = (name || '').toLowerCase().trim()
+    if (evidence.verified.has(n)) return 'verified'
+    if (evidence.self.has(n)) return 'self'
+    return 'none'
+  }
+  const rows = role.required_skills.map((s) => ({ s, status: statusOfSkill(s, profileByName), ev: evidenceOf(s.name) }))
   const learningGaps = rows.filter((x) => x.status !== 'have')
-  const firstGapSkill = learningGaps.find(({ s }) => s.skill_id)?.s || learningGaps[0]?.s || null
   const loc = roleLocation(role)
   const closeRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -561,6 +717,54 @@ function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, sel
     r.company_id && r.source !== 'catalog' ? `Company posting · ${r.company_name || 'company'}`
       : r.source === 'esco' ? 'Labour-market occupation (ESCO)'
       : 'Reference profile'
+  const ver = (r: RoleRecord) => sourceVersionMeta(r) ? ` · v${r.source_version}` : ''
+  const hasKinds = role.required_skills.some((s) => s.skill_kind === 'essential' || s.skill_kind === 'optional')
+  const essRows = rows.filter((x) => x.s.skill_kind === 'essential')
+  const optRows = rows.filter((x) => x.s.skill_kind === 'optional')
+  const skillList = (title: string, items: typeof rows) => (
+    <div className="srb-modal-section">
+      <h4>{title}</h4>
+      <ul className="srb-skill-list">
+        {items.map(({ s, status, ev }) => (
+          <li key={s.name} className={`srb-skill ${status}`}>
+            <span className="srb-dot" aria-hidden="true" />
+            <span className="srb-skill-name">{humanizeTopicLabel(s.name)} <small>{s.required_level}</small>{s.skill_kind === 'optional' && <small className="rd-kind">optional</small>}</span>
+            <span className={`rd-ev ${ev}`}>{ev === 'verified' ? 'verified' : ev === 'self' ? 'self-report' : 'no evidence'}</span>
+            <span className="srb-skill-state">
+              {status === 'have'
+                    ? <><IconCheck size={12} /> you have this</>
+                    : status === 'developing'
+                      ? <><IconAlert size={12} /> leveling up</>
+                      : <><span className="fa-dot" aria-hidden="true" /> missing</>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+  const coveredVerified = rows.filter((x) => x.status === 'have' && x.ev === 'verified').length
+  const coveredSelf = rows.filter((x) => x.status === 'have' && x.ev === 'self').length
+  const missingCount = rows.filter((x) => x.status === 'missing').length
+  const developingCount = rows.filter((x) => x.status === 'developing').length
+  const relGroups: [string, RoleRecord[]][] = [
+    ['Parent career', provenance?.related?.parent ? [provenance.related.parent] : []],
+    ['Specialisations', provenance?.related?.children ?? []],
+    ['Family peers', provenance?.related?.siblings ?? []],
+    ['Replaces', provenance?.related?.supersedes ?? []],
+    ['Replaced by', provenance?.related?.superseded_by ? [provenance.related.superseded_by] : []],
+  ]
+  const relHasAny = relGroups.some(([, list]) => list.length > 0)
+  const relevantJobs = (jobsFeed?.jobs ?? []).filter((j) => {
+    const unique = new Set<string>(
+      [role.title, role.family || '', ...role.required_skills.map((s) => s.name)]
+        .map((x) => String(x || '').toLowerCase().split(/[^a-z0-9]+/))
+        .flat()
+        .filter(Boolean),
+    )
+    return String(j.title || '').toLowerCase().split(/[^a-z0-9]+/).some((t) => unique.has(t))
+  })
+  const deprecated = role.canonical_status && role.canonical_status !== 'active'
+  const aliases = (provenance?.aliases ?? []).filter((a) => a.alias_type !== 'hidden').map((a) => a.alias)
   return (
     <div className="rd-backdrop" onClick={onClose}>
       <aside className="rd-drawer" role="dialog" aria-modal="true" aria-label={role.title} onClick={(e) => e.stopPropagation()}>
@@ -573,34 +777,34 @@ function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, sel
               {loc ? ` · ${loc}` : ''}
               {` · ${roleExperience(role)}`}
               {` · ${roleCategory(role)}`}
+              {sourceVersionMeta(role) ? ` · v${role.source_version}` : ''}
             </p>
+            {aliases.length > 0 && <p className="srb-role-meta rd-aliases">Also known as: {aliases.join(' · ')}</p>}
           </div>
           <button type="button" className="srb-close" aria-label="Close details" ref={closeRef} onClick={onClose}>✕</button>
         </header>
+        {deprecated && (
+          <p className="rd-deprecated" role="note">
+            This role is {role.canonical_status}
+            {provenance?.related?.superseded_by ? ` — superseded by "${provenance.related.superseded_by.title}".` : '.'}
+            {' '}Deprecated roles never appear among career-transition suggestions.
+          </p>
+        )}
         {role.description && <p className="rd-drawer-desc">{role.description}</p>}
         <div className="srb-modal-match">
-          <MatchRing pct={noCvSkills ? null : (match.pct ?? null)} size={92} />
+          <MatchRing pct={noCvSkills ? null : (match.pct ?? null)} size={92} label={match.metricLabel || 'Requirement coverage'} />
           <div>
-            <p className="srb-eyebrow">Skill match</p>
+            <p className="srb-eyebrow">{match.metricLabel || 'Requirement coverage'}</p>
             {noCvSkills
               ? <p className="small muted">Upload a CV to measure your match against this role.</p>
-              : <p className="small muted">{match.reason || `${rows.length - learningGaps.length} of ${rows.length} required skills are on your profile. Verified skills outrank self-reported ones.`}</p>}
+              : <>
+                  <p className="small muted">{match.reason || `${rows.length - learningGaps.length} of ${rows.length} required skills are on your profile. Verified skills outrank self-reported ones.`}</p>
+                  <p className="small muted rd-ev-legend">Verified-covered {coveredVerified} · self-reported-covered {coveredSelf} · missing {missingCount}{developingCount > 0 ? ` · leveling up ${developingCount}` : ''}</p>
+                </>}
           </div>
         </div>
-        <div className="srb-modal-section">
-          <h4>Required skills</h4>
-          <ul className="srb-skill-list">
-            {rows.map(({ s, status }) => (
-              <li key={s.name} className={`srb-skill ${status}`}>
-                <span className="srb-dot" aria-hidden="true" />
-                <span className="srb-skill-name">{s.name} <small>{s.required_level}</small></span>
-                <span className="srb-skill-state">
-                  {status === 'have' ? '✓ you have this' : status === 'developing' ? '⚠ leveling up' : '○ missing'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {hasKinds ? skillList('Essential skills', essRows) : skillList('Required skills', rows)}
+        {hasKinds && optRows.length > 0 && skillList('Optional skills', optRows)}
         {!noCvSkills && learningGaps.length > 0 && (
           <div className="srb-modal-section">
             <h4>Estimated learning effort</h4>
@@ -610,7 +814,7 @@ function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, sel
                 <button type="button" className="btn btn-sm srb-btn-outline" key={s.name}
                   onClick={() => s.skill_id ? onLearn(s.skill_id) : undefined}
                   disabled={!s.skill_id}>
-                  Learn {s.name}
+                  Learn {humanizeTopicLabel(s.name)}
                 </button>
               ))}
             </div>
@@ -619,6 +823,65 @@ function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, sel
         <div className="srb-modal-section">
           <h4>Practice scenarios</h4>
           <p className="small muted">{scenarioNote || 'No practice scenarios are shown for a role that is not your target career. Set this role as your target to unlock the scenarios written for it.'}</p>
+        </div>
+        <div className="srb-modal-section">
+          <h4>Related roles &amp; career moves</h4>
+          {provenanceState === 'loading' && <p className="small muted">Loading maintained relationships…</p>}
+          {provenanceState === 'error' && <p className="small muted">Related roles are unavailable right now.</p>}
+          {provenanceState === 'ready' && provenance && !relHasAny && (
+            <p className="small muted rd-related-none">No maintained relationships exist for this role yet.</p>
+          )}
+          {provenanceState === 'ready' && provenance && relHasAny && (
+            <>
+              <div className="rd-related">
+                {relGroups.map(([label, list]) => list.length === 0 ? null : (
+                  <div className="rd-related-group" key={label}>
+                    <span className="rd-related-label">{label}</span>
+                    <div className="rd-related-rows">
+                      {list.map((r) => (
+                        <button type="button" className="rd-related-row" key={r.id} onClick={() => onOpenRole(r)}>
+                          <span className="rd-related-title">{r.title}{ver(r)}</span>
+                          <span className={`chip ${roleSourceLabel(r) === 'Company' ? 'chip-company' : roleSourceLabel(r) === 'ESCO' ? 'chip-esco' : 'chip-catalog'}`}>{roleSourceLabel(r)}</span>
+                          {r.canonical_status && r.canonical_status !== 'active' && <span className="rd-rel-dep">deprecated</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="small muted">Shown only where a maintained relationship exists between roles. Deprecated roles never appear among the suggestions. No salaries, probabilities, or timing are ever invented.</p>
+            </>
+          )}
+        </div>
+        <div className="srb-modal-section">
+          <h4>Available jobs for this role</h4>
+          {jobsFeedState === 'loading' && <p className="small muted">Checking your live job feed…</p>}
+          {jobsFeedState === 'nocv' && <p className="small muted">Upload a CV to see live listings relevant to this role.</p>}
+          {jobsFeedState === 'ready' && jobsFeed && relevantJobs.length === 0 && (
+            <p className="small muted">No current listings overlap this role.</p>
+          )}
+          {jobsFeedState === 'ready' && jobsFeed && relevantJobs.length > 0 && (
+            <>
+              <ul className="rd-jobs">
+                {relevantJobs.slice(0, 6).map((j) => (
+                  <li className="rd-job" key={j.fingerprint ?? `${j.title}-${j.company}`}>
+                    <div className="rd-job-head">
+                      <span className="rd-job-title">{j.title}</span>
+                      <span className="rd-job-co">{j.company}{j.location ? ` · ${j.location}` : ''}</span>
+                    </div>
+                    <div className="rd-job-meta">
+                      <span className={`rd-ls ${j.listing_status === 'expired' ? 'rd-ls-expired' : 'rd-ls-live'}`}>{j.listing_status || 'live'}</span>
+                      {j.provider && <span className="rd-provider">{j.provider}</span>}
+                      {j.listed_days_ago != null && <span className="muted small">{j.listed_days_ago === 0 ? 'listed today' : `${j.listed_days_ago} day${j.listed_days_ago === 1 ? '' : 's'} ago`}</span>}
+                      {j.match_pct != null && <span className="muted small">match {j.match_pct}%</span>}
+                    </div>
+                    {j.url && <a className="rd-job-link" href={j.url} target="_blank" rel="noopener noreferrer">View listing</a>}
+                  </li>
+                ))}
+              </ul>
+              <p className="small muted">Sourced from your student job feed with each listing's real provider and freshness state — never fabricated. Open the Dashboard to refresh it.</p>
+            </>
+          )}
         </div>
         {others.length > 0 && (
           <div className="srb-modal-section">
@@ -701,13 +964,15 @@ function CompareTray({ roles, open, onRemove, onClear }: {
 }
 
 // Side-by-side comparison of up to three roles. Compares match, covered skills,
-// gaps, difficulty and scenario availability only — salary/market figures are
-// never invented or shown.
-function CompareModal({ roles, matches, profileByName, scenarioNoteFor, savedFor, busy, onClose, onRemove, onSelect, onSave, onLearn }: {
+// gaps, difficulty, scenario availability, shared/unique skills and live-job
+// coverage only — salary/market figures are never invented or shown.
+function CompareModal({ roles, matches, profileByName, evidence, scenarioNoteFor, jobCountFor, savedFor, busy, onClose, onRemove, onSelect, onSave, onLearn }: {
   roles: RoleRecord[]
   matches: RoleMatchInfo[]
   profileByName: Map<string, string>
+  evidence: { verified: Set<string>; self: Set<string> }
   scenarioNoteFor: (roleId: number) => string
+  jobCountFor: (roleId: number) => number | null
   savedFor: (id: number) => boolean
   busy: boolean
   onClose: () => void
@@ -716,6 +981,10 @@ function CompareModal({ roles, matches, profileByName, scenarioNoteFor, savedFor
   onSave: (id: number) => void
   onLearn: (skillId: number) => void
 }) {
+  const nameSets = roles.map((r) => new Set(r.required_skills.map((s) => s.name.toLowerCase().trim())))
+  const shared = roles.length > 0 ? [...nameSets[0]!].filter((n) => nameSets.every((s) => s.has(n))) : []
+  const uniquePer = roles.map((r, i) =>
+    [...nameSets[i]!].filter((n) => nameSets.some((s, j) => j !== i && s.has(n)) === false))
   const closeRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -768,14 +1037,39 @@ function CompareModal({ roles, matches, profileByName, scenarioNoteFor, savedFor
             <span className="rd-cmp-label">Covered skills</span>
             {roles.map((r) => {
               const have = r.required_skills.filter((s) => statusOfSkill(s, profileByName) === 'have')
+              const verified = have.filter((s) => evidence.verified.has(s.name.toLowerCase().trim())).length
+              const self = have.length - verified
               return (
                 <span className="rd-cmp-cell" key={r.id}>
                   <strong>{have.length} of {r.required_skills.length}</strong>
-                  {have.length > 0 && <span className="rd-cmp-names">{have.slice(0, 6).map((s) => s.name).join(' · ')}{have.length > 6 ? '…' : ''}</span>}
+                  <span className="rd-cmp-names">{verified} verified · {self} self-reported</span>
+                  {have.length > 0 && <span className="rd-cmp-names">{have.slice(0, 6).map((s) => humanizeTopicLabel(s.name)).join(' · ')}{have.length > 6 ? '…' : ''}</span>}
                 </span>
               )
             })}
           </div>
+          <div className="rd-cmp-row">
+            <span className="rd-cmp-label">Shared skills</span>
+            {roles.map((r) => (
+              <span className="rd-cmp-cell" key={r.id}>
+                {shared.length === 0 ? <span className="rd-cmp-names">None</span>
+                  : <><strong>{shared.length} core</strong><span className="rd-cmp-names">{shared.slice(0, 8).join(' · ')}{shared.length > 8 ? '…' : ''}</span></>}
+              </span>
+            ))}
+          </div>
+          {roles.map((r, i) => (
+            <div className="rd-cmp-row" key={`uniq-${r.id}`}>
+              <span className="rd-cmp-label">Unique to {r.title}</span>
+              {roles.map((c) => (
+                <span className="rd-cmp-cell" key={c.id}>
+                  {c.id === r.id
+                    ? (uniquePer[i]?.length === 0 ? <span className="rd-cmp-names">None</span>
+                        : <><strong>{uniquePer[i]!.length}</strong><span className="rd-cmp-names">{uniquePer[i]!.slice(0, 6).join(' · ')}{uniquePer[i]!.length > 6 ? '…' : ''}</span></>)
+                    : <span className="rd-cmp-names">—</span>}
+                </span>
+              ))}
+            </div>
+          ))}
           <div className="rd-cmp-row">
             <span className="rd-cmp-label">Skill gaps</span>
             {roles.map((r) => {
@@ -783,7 +1077,7 @@ function CompareModal({ roles, matches, profileByName, scenarioNoteFor, savedFor
               return (
                 <span className="rd-cmp-cell" key={r.id}>
                   {gaps.length === 0 ? <span className="rd-cmp-names">None</span>
-                    : <><strong>{gaps.length} to develop</strong><span className="rd-cmp-names">{gaps.slice(0, 5).map((s) => s.name).join(' · ')}{gaps.length > 5 ? '…' : ''}</span></>}
+                    : <><strong>{gaps.length} to develop</strong><span className="rd-cmp-names">{gaps.slice(0, 5).map((s) => humanizeTopicLabel(s.name)).join(' · ')}{gaps.length > 5 ? '…' : ''}</span></>}
                 </span>
               )
             })}
@@ -793,6 +1087,19 @@ function CompareModal({ roles, matches, profileByName, scenarioNoteFor, savedFor
             {roles.map((r) => (
               <span className="rd-cmp-cell" key={r.id}>{scenarioNoteFor(r.id)}</span>
             ))}
+          </div>
+          <div className="rd-cmp-row">
+            <span className="rd-cmp-label">Live jobs</span>
+            {roles.map((r) => {
+              const n = jobCountFor(r.id)
+              return (
+                <span className="rd-cmp-cell" key={r.id}>
+                  {n === null ? <span className="rd-cmp-names">—</span>
+                    : n === 0 ? <span className="rd-cmp-names">None in your feed</span>
+                    : <><strong>{n}</strong><span className="rd-cmp-names">in your feed</span></>}
+                </span>
+              )
+            })}
           </div>
         </div>
         <div className="rd-cmp-actions">
@@ -826,9 +1133,12 @@ function CompareModal({ roles, matches, profileByName, scenarioNoteFor, savedFor
 
 // ------------------------------------------------------------------ Student browse
 function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: Student; analysis?: Analysis; onNavigate?: Navigate; backTo?: { key: string; label: string } | null }) {
-  const { refreshStudent } = useApp()
-  const { roles, catalog, loaded, loadError } = useRoles()
-  const [q, setQ] = useState('')
+  const { refreshStudent, me } = useApp()
+  const { roles, catalog, loaded, loadError, roleDataVersion } = useRoles()
+  // Phase L deep-link: read #explorer once at mount, apply back/forward on hashchange.
+  const initialExplorer = useMemo(() => parseExplorerHash(window.location.hash), [])
+  const [q, setQ] = useState(initialExplorer.q ?? '')
+  const [qDraft, setQDraft] = useState(initialExplorer.q ?? '')
   const [selectedRole, setSelectedRole] = useState<number | null>(student?.target_role_id ?? null)
   const [uploading, setUploading] = useState(false)
   const [cvMsg, setCvMsg] = useState('')
@@ -853,18 +1163,19 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
   const [recs, setRecs] = useState<RoleRecommendationsResponse | null>(null)
   const [recsErr, setRecsErr] = useState('')
   const [recSelectingKey, setRecSelectingKey] = useState<string | null>(null)
-  const [filters, setFilters] = useState<{ location: string[]; level: string[]; category: string[]; skill: string[] }>({
+  const [filters, setFilters] = useState<ExplorerFilters>({
     location: [],
     level: [],
     category: [],
     skill: [],
+    family: initialExplorer.fam ?? [],
   })
   const [detailsRole, setDetailsRole] = useState<RoleRecord | null>(null)
   const [detailsBusy, setDetailsBusy] = useState(false)
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set())
   const [savedOnly, setSavedOnly] = useState(false)
   // Phase 2 discovery state: top-level views, pagination, compare, target confirm.
-  const [tab, setTab] = useState<'recommended' | 'all' | 'saved' | 'market'>('recommended')
+  const [tab, setTab] = useState<ExplorerTab>(initialExplorer.tab ?? 'recommended')
   const [page, setPage] = useState(1)
   const pageSize = 12
   const [compareIds, setCompareIds] = useState<number[]>([])
@@ -873,7 +1184,39 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
   const [pendingTarget, setPendingTarget] = useState<PendingTarget | null>(null)
   const [targetBusy, setTargetBusy] = useState(false)
   const [drawerScenarios, setDrawerScenarios] = useState<string | null>(null)
+  // Phase L recently-viewed state (fetched when the recents tab is active).
+  const [recentRoles, setRecentRoles] = useState<RecentRole[]>([])
+  const [recentErr, setRecentErr] = useState('')
+  const [recentLoaded, setRecentLoaded] = useState(false)
+  // Phase L keyboard highlight index over the All Roles grid (arrow keys).
+  const [hlIndex, setHlIndex] = useState(-1)
   const toast = useToast()
+
+  // Phase L debounce: the input reflects keystrokes immediately (qDraft), the
+  // applied filter (q) follows 150 ms later so typing never lags the UI.
+  useEffect(() => {
+    const t = window.setTimeout(() => setQ(qDraft), 150)
+    return () => window.clearTimeout(t)
+  }, [qDraft])
+
+  // Phase L deep-link: keep the hash in sync silently (replaceState fires no
+  // hashchange, so this cannot loop with the back/forward listener below).
+  useEffect(() => {
+    const hash = serializeExplorer(tab, q, filters.family)
+    if (window.location.hash !== hash) window.history.replaceState(null, '', hash)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, q, filters.family])
+
+  useEffect(() => {
+    const onHash = () => {
+      const h = parseExplorerHash(window.location.hash)
+      if (h.tab) setTab(h.tab)
+      if (h.q != null) { setQ(h.q); setQDraft(h.q) }
+      if (h.fam) setFilters((f) => ({ ...f, family: h.fam! }))
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   useEffect(() => {
     if (!student) return
@@ -882,6 +1225,18 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
       .catch((e) => console.error('[roles] saved roles failed:', e))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [student?.id])
+
+  // Phase L recently-viewed: fetched when the recents tab is active (guard so
+  // the student id is never used unset during the async profile load).
+  const loadRecents = useCallback(() => {
+    if (!student) return
+    setRecentLoaded(false)
+    api.recentRoles(student.id)
+      .then((res) => { setRecentRoles(res.roles || []); setRecentErr(''); setRecentLoaded(true) })
+      .catch((e) => { setRecentErr(e.message || String(e)); setRecentLoaded(true) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [student?.id])
+  useEffect(() => { if (tab === 'recents') loadRecents() }, [tab, loadRecents])
 
   const toggleSaveRole = async (roleId: number) => {
     if (!student) return
@@ -931,6 +1286,66 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
     if (!profileByName.has(s.name.toLowerCase().trim())) profileByName.set(s.name.toLowerCase().trim(), s.level)
   }
 
+  // Phase M: evidence separation stays data-driven — verified and self-reported
+  // name sets come only from the student profile payload, never invented.
+  const evidence = useMemo(() => {
+    const verified = new Set<string>()
+    for (const s of student?.verified_skills ?? []) verified.add(s.name.toLowerCase().trim())
+    const self = new Set<string>()
+    for (const s of student?.self_reported_skills ?? []) self.add(s.name.toLowerCase().trim())
+    return { verified, self }
+  }, [student])
+
+  // Phase M: related role graph for the OPEN role (read-only provenance fetch).
+  const [provenance, setProvenance] = useState<RoleProvenance | null>(null)
+  const [provState, setProvState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  useEffect(() => {
+    if (!detailsRole) { setProvenance(null); setProvState('idle'); return }
+    let live = true
+    setProvState('loading')
+    setProvenance(null)
+    api.roleProvenance(detailsRole.id)
+      .then((p: RoleProvenance) => { if (live) { setProvenance(p); setProvState('ready') } })
+      .catch(() => { if (live) setProvState('error') })
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailsRole?.id])
+
+  // Phase M: available-jobs section surfaces the student's existing profile-keyed
+  // job feed (the same cache the Dashboard builds), fetched ONCE per view so no
+  // repeated drawer opens can re-trigger a provider build.
+  const [jobsFeed, setJobsFeed] = useState<RecentJobsResponse | null>(null)
+  const [jobsFeedState, setJobsFeedState] = useState<'idle' | 'loading' | 'ready' | 'nocv'>('idle')
+  const jobsFeedFired = useRef(false)
+  useEffect(() => {
+    if (jobsFeedFired.current || !student || !me) return
+    jobsFeedFired.current = true
+    if (noCvSkills) { setJobsFeedState('nocv'); return }
+    setJobsFeedState('loading')
+    const st = student as unknown as Record<string, unknown>
+    api.recentJobs({
+      location: (st.location as string) || (me.location as string | undefined) || '',
+      country: (st.country as string) || (me.country as string | undefined) || '',
+      market: marketCountry,
+    })
+      .then((r: RecentJobsResponse) => { setJobsFeed(r); setJobsFeedState('ready') })
+      .catch(() => { setJobsFeedState('ready') })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [student, me, noCvSkills])
+
+  // Count of relevant feed listings per role for the compare "Live jobs" row
+  // (null while the feed is idle/loading/unavailable — never a fabricated 0).
+  const jobCountFor = useCallback((roleId: number): number | null => {
+    if (jobsFeedState !== 'ready' || !jobsFeed) return null
+    const role = all.find((r) => r.id === roleId)
+    if (!role) return null
+    const unique = new Set<string>(
+      [role.title, role.family || '', ...role.required_skills.map((s) => s.name)]
+        .map((x) => String(x || '').toLowerCase().split(/[^a-z0-9]+/)).flat().filter(Boolean),
+    )
+    return jobsFeed.jobs.filter((j) => String(j.title || '').toLowerCase().split(/[^a-z0-9]+/).some((t) => unique.has(t))).length
+  }, [jobsFeed, jobsFeedState, all])
+
   // Phase 5: resolve a real skill id (never fabricated) for the ROLE BEING
   // VIEWED so Learn/Verify deep-link into the journey:
   //  - target role -> first non-strong gap from the level-aware analysis;
@@ -963,6 +1378,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
     level: ['Entry', 'Mid', 'Senior'],
     category: [...new Set(all.map((r) => roleCategory(r)))].sort(),
     skill: [...new Set(all.flatMap((r) => r.required_skills.map((s) => s.name).filter(Boolean)))].sort(),
+    family: [...new Set(all.map((r) => roleFamily(r)))].sort(),
   }), [all])
 
   const hasNoLocation = all.some((r) => !roleLocation(r))
@@ -972,6 +1388,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
     ...filters.category.map((v) => ({ group: 'category' as const, label: 'Category', value: v })),
     ...filters.level.map((v) => ({ group: 'level' as const, label: 'Experience', value: v })),
     ...filters.skill.map((v) => ({ group: 'skill' as const, label: 'Skill', value: v })),
+    ...filters.family.map((v) => ({ group: 'family' as const, label: 'Role family', value: v })),
     ...(matchRange.min != null ? [{ group: 'match' as const, label: 'Match', value: `≥ ${matchRange.min}%` }] : []),
     ...(matchRange.max != null ? [{ group: 'match' as const, label: 'Match', value: `≤ ${matchRange.max}%` }] : []),
   ]
@@ -982,15 +1399,21 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
     if (f.group === 'match') setMatchRange({ min: null, max: null })
     else toggleFilter(f.group, f.value)
   }
-  const clearFilters = () => { setFilters({ location: [], level: [], category: [], skill: [] }); setMatchRange({ min: null, max: null }) }
+  const clearFilters = () => { setFilters({ location: [], level: [], category: [], skill: [], family: [] }); setMatchRange({ min: null, max: null }) }
 
   // Real jobs (ESCO occupations + company postings) lead; SkillBridge catalog
   // reference roles are demoted to their own labelled secondary section.
   const realRecs = (recs?.recommendations || []).filter((r) => r.source !== 'catalog')
 
-  const targetPct = cvSkillNames.length > 0 && (currentTarget?.required_skills.length ?? 0) > 0
-    ? Math.round((currentTarget!.required_skills.reduce((n, s) => n + (cvSkillNames.includes(s.name.toLowerCase().trim()) ? 1 : 0), 0) / currentTarget!.required_skills.length) * 100)
-    : null
+  // Data truth (Phase 2): the target-role number comes from the backend's
+  // canonical `target_requirement_coverage` metric. It is never recomputed here
+  // from raw skill-name overlap, which ignored levels and could show 100% while
+  // a requirement gap (e.g. Docker) was still open.
+  const targetCoverage = analysis?.metrics?.target_requirement_coverage ?? analysis?.match_score ?? null
+  const targetPct = targetCoverage === null ? null : Math.round(targetCoverage)
+  const targetComplete = analysis?.all_requirements_met === true
+  const targetOpenGaps = analysis?.missing_requirements?.length
+    ?? (analysis?.skill_gaps || []).filter((g) => g.status !== 'strong').length
 
   // Phase 2: a single match source (backend recomputation whenever available)
   // and display-level deduplication across sources — records are never deleted.
@@ -1024,7 +1447,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
 
   const filtered = rankedReps.filter(({ r, score }) => {
     if (savedOnly && !savedIds.has(r.id)) return false
-    const haystack = [r.title, r.company_name, roleLocation(r), roleCategory(r), roleExperience(r), r.description, ...r.required_skills.map((s) => s.name)]
+    const haystack = [r.title, r.company_name, roleLocation(r), roleCategory(r), roleExperience(r), roleFamily(r), r.description, ...r.required_skills.map((s) => s.name)]
       .map((x) => (x ? String(x) : '').toLowerCase())
       .filter(Boolean)
       .join(' ')
@@ -1036,6 +1459,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
     if (!facetOk(roleLocation(r) || 'Not specified', filters.location)) return false
     if (!facetOk(roleExperience(r), filters.level)) return false
     if (!facetOk(roleCategory(r), filters.category)) return false
+    if (!facetOk(roleFamily(r), filters.family)) return false
     if (filters.skill.length) {
       const names = r.required_skills.map((s) => s.name.toLowerCase().trim())
       if (!filters.skill.some((s) => names.includes(s.toLowerCase().trim()))) return false
@@ -1059,9 +1483,38 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
   useEffect(() => { setPage(1) }, [
     q, showAll, srcCompany, srcCatalog, savedOnly, tab,
     matchRange.min, matchRange.max,
-    filters.location.join('|'), filters.level.join('|'), filters.category.join('|'), filters.skill.join('|'),
+    filters.location.join('|'), filters.level.join('|'), filters.category.join('|'), filters.skill.join('|'), filters.family.join('|'),
     savedIds.size,
   ])
+
+  // Phase L keyboard navigation: the highlight ring resets whenever the paged
+  // grid changes identity (page, query, filters, source split, saved-only).
+  const hlResetKey = [
+    page, filtered.length, q.trim(), savedOnly, srcCompany, srcCatalog, tab,
+    filters.location.join('|'), filters.level.join('|'), filters.category.join('|'),
+    filters.skill.join('|'), filters.family.join('|'), matchRange.min, matchRange.max,
+  ].join(':')
+  useEffect(() => { setHlIndex(-1) }, [hlResetKey])
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+  useEffect(() => {
+    const el = cardRefs.current[Math.max(0, hlIndex)]
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  }, [hlIndex])
+  const setCardRef = (i: number) => (el: HTMLDivElement | null) => { cardRefs.current[i] = el }
+  const onSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (paged.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHlIndex((i) => (i < 0 ? 0 : (i + 1) % paged.length))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHlIndex((i) => (i < 0 ? paged.length - 1 : (i - 1 + paged.length) % paged.length))
+    } else if (e.key === 'Enter') {
+      if (hlIndex >= 0 && paged[hlIndex]) { e.preventDefault(); openRoleDetails(paged[hlIndex].r) }
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); setHlIndex(-1)
+    }
+  }
 
   // Target selection is deliberate: replacing an existing target asks the user
   // to confirm, explaining that learning paths and practice scenarios will
@@ -1221,7 +1674,16 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
 
   const initials = (student?.name || 'S').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
 
-  const openRoleDetails = (r: RoleRecord) => { setDetailsRole(r); setDetailsBusy(false) }
+  const openRoleDetails = (r: RoleRecord) => {
+    setDetailsRole(r); setDetailsBusy(false)
+    // Phase L recently-viewed: opening a local role's details records the view
+    // (fire-and-forget; a failure must never block the drawer). On the recents
+    // tab the list refreshes immediately so the row reflects the latest view.
+    if (student && r?.id) {
+      api.recordRoleView(student.id, r.id).catch((e) => console.error('[roles] record view failed:', e))
+      if (tab === 'recents') loadRecents()
+    }
+  }
   const closeRoleDetails = () => { if (!detailsBusy) setDetailsRole(null) }
   const selectFromDetails = (r: RoleRecord) => chooseTarget(r.id)
   const learnSkill = (skillId: number) => {
@@ -1287,15 +1749,15 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
         <div className="sro3-hero-copy">
           <p className="sro3-eyebrow">Find your next role</p>
           <h1 className="sro3-hero-title">Choose the role your learning path should serve.</h1>
-          <p className="sro3-hero-sub">Your CV profile, verified skills, and target role stay separate so the match score remains explainable. Search the library, filter by where you want to work, and compare roles before committing.</p>
+          <p className="sro3-hero-sub">Explore roles that fit your profile, compare the strongest options, then choose one to shape your learning path.</p>
         </div>
       </section>
 
       <section className="srb-summary" aria-label="Career summary">
-        <div className="srb-card srb-target-card">
+        <div className="srb-card srb-target-card hcard-action">
           <div className="srb-card-head">
             <span className="srb-eyebrow">Your target career</span>
-            <MatchRing pct={targetPct} size={96} label="match" />
+            <MatchRing pct={targetPct} size={96} label="requirement coverage" />
           </div>
           <h3 className="srb-target-title">{currentTarget?.title || 'Not selected yet'}</h3>
           <p className="srb-target-meta">
@@ -1308,7 +1770,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
             Browse roles
           </button>
         </div>
-        <div className="srb-card srb-profile-card">
+        <div className="srb-card srb-profile-card hcard-info">
           <div className="srb-card-head">
             <span className="srb-eyebrow">Profile &amp; CV</span>
             <label className="btn btn-sm srb-btn-outline" style={{ cursor: 'pointer' }}>
@@ -1343,6 +1805,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
         {([
           ['recommended', 'Recommended for You'],
           ['all', 'All Roles'],
+          ['recents', 'Recently Viewed'],
           ['saved', 'Saved Roles'],
           ['market', 'Market Search'],
         ] as const).map(([key, label]) => (
@@ -1350,6 +1813,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
             className={`rd-tab ${tab === key ? 'on' : ''}`} onClick={() => setTab(key)}>
             {label}
             {key === 'all' && <span className="rd-tab-count">{reps.length}</span>}
+            {key === 'recents' && recentLoaded && recentRoles.length > 0 && <span className="rd-tab-count">{recentRoles.length}</span>}
             {key === 'saved' && savedIds.size > 0 && <span className="rd-tab-count">{savedIds.size}</span>}
           </button>
         ))}
@@ -1369,6 +1833,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
               <RecommendationCard
                 key={rec.role_id ?? rec.external_id ?? rec.title}
                 rec={rec}
+                studentId={student?.id}
                 selected={recSelected(rec)}
                 busy={recSelectingKey === (rec.role_id != null ? String(rec.role_id) : rec.external_id || rec.title)}
                 onSelect={() => selectRecommendation(rec)}
@@ -1391,9 +1856,12 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
             <div>
               <p className="srb-eyebrow">Reference roles — local catalogue</p>
               <h3>Careers you can aim at</h3>
-              <p className="card-sub">SkillBridge reference skill profiles — not live job postings. Only roles that share skills with your profile are shown, so nothing irrelevant gets in the way.</p>
+              <p className="card-sub">The closest reference roles to your current profile. These are career profiles, not live job postings.</p>
             </div>
-            <span className="srb-count">{refRoles.length} role{refRoles.length === 1 ? '' : 's'}</span>
+            <div className="srb-ref-heading-actions">
+              <span className="srb-count">Top {Math.min(refRoles.length, 4)} of {refRoles.length}</span>
+              {refRoles.length > 4 && <button type="button" className="btn btn-sm srb-btn-outline" onClick={() => setTab('all')}>View all roles</button>}
+            </div>
           </div>
           {refRoles.length === 0 ? (
             <div className="empty">
@@ -1401,7 +1869,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
             </div>
           ) : (
           <div className="srb-ref-row">
-            {refRoles.map((r) => {
+            {refRoles.slice(0, 4).map((r) => {
               const present = r.required_skills.reduce((n, s) => n + (cvSkillNames.includes(s.name.toLowerCase().trim()) ? 1 : 0), 0)
               const gapNames = r.required_skills.filter((s) => !cvSkillNames.includes(s.name.toLowerCase().trim())).slice(0, 3).map((s) => s.name)
               const isTarget = selectedRole === r.id || student?.target_role_id === r.id
@@ -1409,7 +1877,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
                 <article className="srb-ref-card" key={r.id}>
                   <div className="srb-ref-top">
                     <span className="chip chip-catalog">Catalog</span>
-                    <MatchRing pct={matchPctOf(r, cvSkillNames)} size={70} />
+                    <MatchRing pct={matchPctOf(r, cvSkillNames)} size={70} label="catalogue similarity" />
                   </div>
                   <h4 className="srb-ref-title">{r.title}</h4>
                   <p className="srb-ref-gap">
@@ -1453,11 +1921,12 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
         <div className="sro3-roles-head">
           <h3 className="sro3-roles-title">Role library</h3>
           <span className="sro3-count">{loaded ? `${filtered.length} matching roles` : '…'}</span>
+          {roleDataVersion ? <span className="srb-cat-version">Catalogue data v{roleDataVersion}</span> : null}
         </div>
         <p className="card-sub">Search roles, filter by where and what you want, and read each role's requirements before committing to a target.</p>
         <div className="searchbar mb">
           <IconSearch size={16} />
-          <input placeholder="Search roles, companies, skills, categories…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search roles" />
+          <input placeholder="Search roles, companies, skills, families, categories…" value={qDraft} onChange={(e) => setQDraft(e.target.value)} onKeyDown={onSearchKeyDown} aria-label="Search roles" />
         </div>
 
         {!loaded && !loadError && (
@@ -1525,6 +1994,14 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
                 </div>
               </details>
               <details className="srb-facet">
+                <summary>Role family{filters.family.length ? ` (${filters.family.length})` : ''}</summary>
+                <div className="srb-facet-opts srb-facet-scroll">
+                  {facetOptions.family.map((f) => (
+                    <label key={f}><input type="checkbox" checked={filters.family.includes(f)} onChange={() => toggleFilter('family', f)} /> {f}</label>
+                  ))}
+                </div>
+              </details>
+              <details className="srb-facet">
                 <summary>Match{(matchRange.min != null || matchRange.max != null) ? ' ✓' : ''}</summary>
                 <div className="srb-facet-opts srb-facet-scroll">
                   <label className="rd-range-row">Min % <input type="number" min={0} max={100} value={matchRange.min ?? ''} placeholder="0"
@@ -1551,18 +2028,24 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
               <div className="empty">
                 No roles match the current search.
                 {(activeFilters.length > 0 || q.trim()) ? (
-                  <button type="button" className="btn btn-sm srb-btn-outline" style={{ marginTop: 10, display: 'block', marginInline: 'auto' }} onClick={() => { setQ(''); clearFilters() }}>Clear search &amp; filters</button>
+                  <button type="button" className="btn btn-sm srb-btn-outline" style={{ marginTop: 10, display: 'block', marginInline: 'auto' }} onClick={() => { setQ(''); setQDraft(''); clearFilters() }}>Clear search &amp; filters</button>
                 ) : null}
               </div>
             ) : (
-              <div className="srb-grid">
-                {paged.map(({ r }) => {
+              <>
+              <span className="sr-only" role="status" aria-live="polite">
+                {hlIndex >= 0 && paged[hlIndex] ? `Highlighted ${paged[hlIndex].r.title}, ${hlIndex + 1} of ${paged.length}` : ''}
+              </span>
+              <div className="srb-grid" role="list" aria-label="Matching roles — use arrow keys to highlight a card, Enter to open it">
+                {paged.map(({ r }, idx) => {
                   const statusBySkill = r.required_skills.map((s) => ({ s, status: statusOfSkill(s, profileByName) }))
                   return (
+                    <div key={r.id} role="listitem" className={`srb-card-wrap ${hlIndex === idx ? 'srb-hl' : ''}`}
+                      ref={setCardRef(idx)} data-hl={hlIndex === idx ? 'true' : undefined}>
                     <RoleLibraryCard
-                      key={r.id}
                       r={r}
                       pct={displayMatch(r).pct ?? 0}
+                      metricLabel={displayMatch(r).metricLabel}
                       selected={selectedRole === r.id}
                       dest={catalog.some((c) => c.id === r.id) ? 'catalog' : undefined}
                       chips={noCvSkills ? undefined : statusBySkill.map(({ s, status }) => ({ name: s.name, level: s.required_level, matched: status !== 'missing' }))}
@@ -1579,9 +2062,11 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
                       onDetails={() => openRoleDetails(r)}
                       onToggleSave={() => toggleSaveRole(r.id)}
                     />
+                    </div>
                   )
                 })}
               </div>
+              </>
             )}
           </>
         )}
@@ -1618,6 +2103,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
                     key={r.id}
                     r={r}
                     pct={displayMatch(r).pct ?? 0}
+                    metricLabel={displayMatch(r).metricLabel}
                     selected={selectedRole === r.id}
                     dest={catalog.some((c) => c.id === r.id) ? 'catalog' : undefined}
                     chips={noCvSkills ? undefined : statusBySkill.map(({ s, status }) => ({ name: s.name, level: s.required_level, matched: status !== 'missing' }))}
@@ -1633,6 +2119,48 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
                     onSelect={() => chooseTarget(r.id)}
                     onDetails={() => openRoleDetails(r)}
                     onToggleSave={() => toggleSaveRole(r.id)}
+                  />
+                )
+              })}
+            </div>
+          )}
+        </section>
+      </>
+      )}
+
+      {tab === 'recents' && (
+      <>
+        <section className="sro3-roles-card" id="recent-roles" aria-label="Recently viewed roles">
+          <div className="sro3-roles-head">
+            <h3 className="sro3-roles-title">Recently viewed</h3>
+            <span className="sro3-count">{recentLoaded ? `${recentRoles.length} recent role${recentRoles.length === 1 ? '' : 's'}` : '…'}</span>
+          </div>
+          <p className="card-sub">Roles you opened most recently from the role library, newest first. Opening a role's details records the view here automatically (up to 30 views are kept).</p>
+          {!recentLoaded ? (
+            <div className="empty">Loading recently viewed roles…</div>
+          ) : recentErr ? (
+            <div className="empty">
+              Couldn't load your recently viewed roles. Please try again.
+            </div>
+          ) : recentRoles.length === 0 ? (
+            <div className="empty">
+              Nothing here yet. Open any role's details in the role library and it will appear here, so you can quickly pick up where you left off.
+            </div>
+          ) : (
+            <div className="srb-recent-list">
+              {recentRoles.map((rr) => {
+                const role = all.find((x) => x.id === rr.id)
+                return (
+                  <RecentRoleRow
+                    key={rr.id}
+                    rr={rr}
+                    role={role}
+                    saved={role ? savedIds.has(role.id) : false}
+                    cmp={role ? compareIds.includes(role.id) : false}
+                    onDetails={() => role && openRoleDetails(role)}
+                    onToggleSave={() => role && toggleSaveRole(role.id)}
+                    onSelect={() => role && chooseTarget(role.id)}
+                    onCompare={() => role && toggleCompare(role.id)}
                   />
                 )
               })}
@@ -1722,11 +2250,17 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
           match={displayMatch(detailsRole)}
           noCvSkills={noCvSkills}
           profileByName={profileByName}
+          evidence={evidence}
           selected={selectedRole === detailsRole.id}
           busy={detailsBusy}
           saved={savedIds.has(detailsRole.id)}
           inCompare={compareIds.includes(detailsRole.id)}
           scenarioNote={drawerScenarios}
+          provenance={provenance}
+          provenanceState={provState}
+          onOpenRole={(r) => r.id !== detailsRole.id && setDetailsRole(r)}
+          jobsFeed={jobsFeed}
+          jobsFeedState={jobsFeedState}
           onClose={closeRoleDetails}
           onSelect={() => selectFromDetails(detailsRole)}
           onToggleSave={() => toggleSaveRole(detailsRole.id)}
@@ -1773,9 +2307,17 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
         <div className="sro3-gap-head">
           <div className="sro3-gap-icon"><IconTarget size={16} /></div>
           <div>
-            <p className="sro3-eyebrow">Career readiness</p>
+            <p className="sro3-eyebrow">Target requirement coverage</p>
             <h3>Your {currentTarget?.title || 'target'} skill gap</h3>
-            {targetPct !== null && <p className="sro3-gap-sub">You already match {targetPct}% of this role's requirements.</p>}
+            {targetPct !== null && (
+              <p className="sro3-gap-sub">
+                Your evidence currently covers <strong>{targetPct}%</strong> of this role&apos;s
+                {' '}requirements
+                {targetComplete
+                  ? ' — all requirements are currently met (level-aware; verify to make it official).'
+                  : `, with ${targetOpenGaps} requirement${targetOpenGaps === 1 ? '' : 's'} still open.`}
+              </p>
+            )}
             {targetPct === null && <p className="sro3-gap-sub">{noCvSkills ? 'Upload a CV so matching can begin.' : 'Pick a target career to see your gap map.'}</p>}
           </div>
         </div>
@@ -1812,7 +2354,9 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
           roles={compared}
           matches={compared.map((r) => displayMatch(r))}
           profileByName={profileByName}
+          evidence={evidence}
           scenarioNoteFor={scenarioNoteFor}
+          jobCountFor={jobCountFor}
           savedFor={(id) => savedIds.has(id)}
           busy={targetBusy}
           onClose={() => setShowCompare(false)}
@@ -2144,7 +2688,7 @@ function CompanyRoles({ company }: { company?: any }) {
               </div>
               <div className="sro3-skill-row">
                 {r.required_skills.map((s) => (
-                  <span className="skill-tag" key={s.skill_id}>{s.name} <span className="lv">{s.required_level}</span></span>
+<span className="skill-tag" key={s.skill_id}>{humanizeTopicLabel(s.name)} <span className="lv">{s.required_level}</span></span>
                 ))}
               </div>
               <RoleMappingPanel role={r} onChanged={refresh} />

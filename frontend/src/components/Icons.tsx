@@ -18,6 +18,7 @@ const base = (size = 18, className = '', style?: React.CSSProperties) => ({
   className,
   style,
   'aria-hidden': true,
+  'focusable': false,
 })
 
 export const IconDashboard = (p: IconProps) => (
@@ -92,10 +93,23 @@ export const IconSendRTL = (p: IconProps) => (
     <path d="M2 22L13 11" /><path d="M2 22l7 20 4-9 9-4-20-7z" />
   </svg>
 )
+export const IconSendUp = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)} strokeWidth={2.2}>
+    <path d="M12 19V5" />
+    <path d="M6 11l6-6 6 6" />
+  </svg>
+)
 export const IconMic = (p: IconProps) => (
   <svg {...base(p.size, p.className, p.style)}>
     <rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0" />
     <path d="M12 18v3" />
+  </svg>
+)
+export const IconHeadset = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M4 13a8 8 0 0 1 16 0" />
+    <rect x="3" y="13" width="4.5" height="7" rx="2" />
+    <rect x="16.5" y="13" width="4.5" height="7" rx="2" />
   </svg>
 )
 export const IconStop = (p: IconProps) => (
@@ -106,6 +120,18 @@ export const IconStop = (p: IconProps) => (
 export const IconVolume = (p: IconProps) => (
   <svg {...base(p.size, p.className, p.style)}>
     <path d="M11 5L6 9H3v6h3l5 4V5z" /><path d="M16 9l4 4M20 9l-4 4" />
+  </svg>
+)
+export const IconSpeaker = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M11 5L6 9H2v6h4l5 4V5z" />
+    <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+    <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+  </svg>
+)
+export const IconWaveform = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M4 11v2" /><path d="M8 8v8" /><path d="M12 5v14" /><path d="M16 8v8" /><path d="M20 11v2" />
   </svg>
 )
 export const IconVolumeOff = (p: IconProps) => (
@@ -148,6 +174,12 @@ export const IconChat = (p: IconProps) => (
 )
 export const IconArrowRight = (p: IconProps) => (
   <svg {...base(p.size, p.className, p.style)}><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+)
+export const IconTrendingUp = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M3 17l6-6 4 4 8-8" />
+    <path d="M15 7h6v6" />
+  </svg>
 )
 export const IconFilter = (p: IconProps) => (
   <svg {...base(p.size, p.className, p.style)}><path d="M4 6h16M7 12h10M10 18h4" /></svg>
@@ -309,5 +341,66 @@ export const IconCompare = (p: IconProps) => (
     <rect x="15" y="5" width="6" height="8" rx="1.5" />
     <path d="M6 20v-6M6 16.5l-2 2M6 16.5l2 2" />
     <path d="M18 20v-6M18 16.5l-2 2M18 16.5l2 2" />
+  </svg>
+)
+export const IconCopy = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)} strokeWidth={2}>
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  </svg>
+)
+export const IconKeyboard = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <rect x="3" y="7" width="18" height="10" rx="2" />
+    <path d="M7 11h.01M11 11h.01M15 11h.01M17 11h.01M7 14h10" />
+  </svg>
+)
+export const IconMenu = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)} strokeWidth={2}>
+    <path d="M4 6h16M4 12h16M4 18h16" />
+  </svg>
+)
+export const IconXClose = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>
+)
+export const IconDots = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" />
+  </svg>
+)
+export const IconThumbsUp = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M7 10v10H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h3ZM7 10l5-7c1-1 3 0 3 2l-1 5h5a2 2 0 0 1 2 2l-1 6a2 2 0 0 1-2 2H7" />
+  </svg>
+)
+export const IconThumbsDown = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M7 14V4H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3ZM7 14l5 7c1 1 3 0 3-2l-1-5h5a2 2 0 0 0 2-2l-1-6a2 2 0 0 0-2-2H7" />
+  </svg>
+)
+export const IconShare = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+    <path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4" />
+  </svg>
+)
+export const IconRefresh = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M20 11a8 8 0 0 0-15-2M4 5v4h4M4 13a8 8 0 0 0 15 2M20 19v-4h-4" />
+  </svg>
+)
+export const IconSun = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <circle cx="12" cy="12" r="4.2" />
+    <path d="M12 2v2.4M12 19.6V22M2 12h2.4M19.6 12H22M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M4.9 19.1l1.7-1.7M17.4 6.6l1.7-1.7" />
+  </svg>
+)
+export const IconMoon = (p: IconProps) => (
+  <svg {...base(p.size, p.className, p.style)}>
+    <path d="M21 12.8A8.6 8.6 0 1 1 11.2 3a6.8 6.8 0 0 0 9.8 9.8z" />
   </svg>
 )

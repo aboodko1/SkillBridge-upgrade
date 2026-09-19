@@ -5,6 +5,7 @@ import type { GoogleConfig, LocationOption, UniversityOption } from '../lib/type
 import { IconUser, IconGoogle, IconShield, IconUniversity, IconCheck, IconAlert, IconMail, IconLock } from '../components/Icons'
 import { PasswordInput, ToastRegion, useToast } from '../components/ui'
 import SkillBridgeJourneyHero, { STUDENT_JOURNEY } from '../components/SkillBridgeJourneyHero'
+import BrandLogo from '../components/BrandLogo'
 
 type Mode = 'signin' | 'signup' | 'reset' | 'google-role' | 'google-demo'
 
@@ -44,8 +45,7 @@ export default function LoginPage() {
     <div className="login-split">
       <aside className="login-hero-panel">
         <div className="hero-logo">
-          <div className="brand-mark">S</div>
-          <span className="wordmark">SkillBridge</span>
+          <BrandLogo />
         </div>
         <div className="hero-copy">
           <h1 className="hero-headline">

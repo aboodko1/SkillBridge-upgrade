@@ -22,8 +22,17 @@ MIGRATION_0002 = "0002_auth_sessions"
 MIGRATION_0003 = "0003_canonical_roles"
 MIGRATION_0004 = "0004_esco_import"
 MIGRATION_0005 = "0005_company_role_mapping"
+MIGRATION_0006 = "0006_saved_jobs_tracker"
+MIGRATION_0007 = "0007_role_view_events"
+MIGRATION_0008 = "0008_job_link_reports"
+MIGRATION_0009 = "0009_copilot_config"
+MIGRATION_0010 = "0010_copilot_onboarding"
+MIGRATION_0011 = "0011_mentor_keys"
+MIGRATION_0012 = "0012_tutor_memory"
+MIGRATION_0013 = "0013_tutor_conversations"
+MIGRATION_0014 = "0014_conversation_live_meta"
 EXPECTED_MIGRATIONS = [MIGRATION_0001, MIGRATION_0002, MIGRATION_0003,
-                       MIGRATION_0004, MIGRATION_0005]
+                       MIGRATION_0004, MIGRATION_0005, MIGRATION_0006, MIGRATION_0007, MIGRATION_0008, MIGRATION_0009, MIGRATION_0010, MIGRATION_0011, MIGRATION_0012, MIGRATION_0013, MIGRATION_0014]
 
 
 def _fresh_file_db(tmp_path, name="phaseb.db"):
@@ -185,7 +194,7 @@ def test_db_status_endpoint(client):
     assert body["database"] == {"engine": "sqlite", "ok": True}
     assert body["migrations"]["applied_count"] >= 1
     # Applied rows are returned newest-last so the last entry is the latest migration.
-    assert body["migrations"]["applied"][-1]["migration_id"] == MIGRATION_0005
+    assert body["migrations"]["applied"][-1]["migration_id"] == MIGRATION_0014
 
     bounded = client.get("/api/system/db-status?limit=1")
     assert bounded.status_code == 200

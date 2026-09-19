@@ -13,6 +13,15 @@ from . import genai
 PRACTICE_READY_THRESHOLD = 70
 VALID_STATUSES = ("needs_review", "ready")
 VALID_SOURCES = ("ai", "fallback")
+_CURATED_SOURCE = "trusted_cs_knowledge_base"
+
+
+class PracticeProviderError(RuntimeError):
+    """A live review was required for trusted content but the provider failed.
+
+    Curated lessons never silently substitute a generic concept-coverage review
+    for the real reviewer; the API maps this to a retryable 503 instead.
+    """
 FALLBACK_NOTICE = (
     "AI evaluation is unavailable. This is a basic automated concept-coverage review."
 )
@@ -99,6 +108,87 @@ def lesson_practice_task(lesson):
         "source_attempt_id": None,
         "type": ((content.get("practice") or {}).get("type") or "practice"),
         "questions": _practice_questions(content),
+    }
+
+
+def _curated_practice(lesson):
+    content = (lesson or {}).get("content") or {}
+    canonical = content.get("canonical") or {}
+    if canonical.get("source") != _CURATED_SOURCE:
+        return None
+    practice_block = content.get("practice")
+    return practice_block if isinstance(practice_block, dict) else None
+
+
+def python_functions_static_check(lesson, answer):
+    """Non-executing structural review for the curated Python practice topics.
+
+    Returns a report for the authored Python topics (the ones with trusted
+    automated tests) and ``None`` for every other lesson.  It never executes the
+    submitted code, never changes a practice score, and never verifies a skill:
+    it only records whether the expected structure is present so the learning
+    agent can offer a Mini Check without pretending a runtime test passed.
+    """
+    practice_block = _curated_practice(lesson)
+    if not practice_block:
+        return None
+    competency = str(practice_block.get("competency") or "").strip()
+    text = str(answer or "")
+    if competency == "Python Functions":
+        func = re.search(r"def\s+(\w+)\s*\(\s*(\w+)", text)
+        has_def = bool(func)
+        has_return = bool(re.search(r"\breturn\b", text))
+        convert = re.search(
+            r"return\b[^\n]*?(\*\s*(?:9\s*/\s*5|1\.8)|/\s*5\s*\*\s*9|\*\s*1\.8|\+\s*32)",
+            text)
+        checks = [
+            "Defines a function with at least one parameter." if has_def
+            else "No function definition with a parameter was found.",
+            "Returns a computed value instead of only printing it." if has_return
+            else "The function must use return to send a value back; printing alone is not enough.",
+            "The return expression shows the expected conversion." if convert
+            else "The return expression does not show the expected temperature conversion.",
+        ]
+        sound = has_def and has_return and bool(convert)
+    elif competency == "Python Error Handling":
+        has_try = bool(re.search(r"\btry\b", text))
+        has_except = bool(re.search(r"except\s+ValueError\b", text))
+        has_return = bool(re.search(r"\breturn\b", text))
+        checks = [
+            "Places the risky conversion inside try." if has_try
+            else "No try block was found for the conversion that may fail.",
+            "Catches the specific ValueError." if has_except
+            else "Catch ValueError specifically; a bare except hides unrelated bugs.",
+            "Returns a value from both the success and error paths." if has_return
+            else "The function must return a value so the caller can handle the result.",
+        ]
+        sound = has_try and has_except and has_return
+    elif competency == "Python Data Structures":
+        has_def = bool(re.search(r"def\s+\w+\s*\(\s*\w+", text))
+        has_return = bool(re.search(r"\breturn\b", text))
+        has_dict = bool(re.search(r"\{\s*['\"]", text)) or bool(re.search(r"\breturn\s*\{", text))
+        has_count = bool(re.search(r"['\"]count['\"]", text))
+        has_average = bool(re.search(r"['\"]average['\"]", text))
+        has_len_sum = bool(re.search(r"\blen\s*\(", text)) and bool(re.search(r"\bsum\s*\(", text))
+        checks = [
+            "Defines a function with at least one parameter." if has_def
+            else "No function definition with a parameter was found.",
+            "Builds a dictionary (returned directly or built with braces)." if has_dict
+            else "Return a dictionary built with braces, such as {'count': ..., 'average': ...}.",
+            "Names the 'count' and 'average' keys the task requires." if (has_count and has_average)
+            else "The returned dictionary must contain both the 'count' and 'average' keys.",
+            "Uses len() and sum() to compute the summary." if has_len_sum
+            else "Use len(scores) and sum(scores) to compute the count and average.",
+            "Returns the dictionary from the function." if has_return
+            else "Use return so the caller receives the summary dictionary.",
+        ]
+        sound = has_def and has_return and has_dict and has_count and has_average and has_len_sum
+    else:
+        return None
+    return {
+        "status": "looks_structurally_sound" if sound else "needs_fix",
+        "note": "Structural review only; the submitted code was not executed.",
+        "checks": checks,
     }
 
 
@@ -485,7 +575,15 @@ def generate_remediation(context, evaluation, student_answer):
 
 
 def evaluate_practice(context, student_answer):
-    """Evaluate a practice answer with GenAI, falling back transparently."""
+    """Evaluate a practice answer with GenAI, falling back transparently.
+
+    ``context["strict"]`` is set by the caller for trusted curated content: if
+    the live reviewer is enabled but cannot produce a usable result, the caller
+    gets a retryable ``PracticeProviderError`` instead of a generic fallback
+    presented as review. It travels on the context (not as a call argument) so
+    the evaluator stays a two-argument seam for callers and tests.
+    """
+    strict = bool((context or {}).get("strict"))
     if not genai.genai_enabled():
         return fallback_evaluate_practice(context, student_answer)
 
@@ -516,8 +614,12 @@ def evaluate_practice(context, student_answer):
         raw = genai.complete(system, user, max_tokens=1200, timeout=120)
         parsed = genai._extract_json(raw)
         normalized = _normalize_ai_result(parsed)
-    except Exception:
+    except Exception as exc:
+        if strict:
+            raise PracticeProviderError(str(exc)) from exc
         normalized = None
     if normalized is None:
+        if strict:
+            raise PracticeProviderError("live practice review returned no usable result")
         return fallback_evaluate_practice(context, student_answer)
     return normalized

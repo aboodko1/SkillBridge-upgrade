@@ -245,7 +245,7 @@ function LibraryView({
 
   return (
     <>
-      <div className="scn-hero panel">
+      <div className="scn-hero panel hcard-hero">
         <div>
           <p className="eyebrow">Practice Scenarios</p>
           <h2 className="scn-hero-title">
@@ -253,12 +253,12 @@ function LibraryView({
           </h2>
           <p className="scn-hero-sub">
             {hasTarget
-              ? `Step through realistic, branching situations for the ${library.target_role} role. Make the calls an actual professional would make — every decision changes what happens next.`
-              : 'Step through realistic, branching situations for the role you are building toward. Make the calls an actual professional would make — every decision changes what happens next.'}
+              ? `Practice realistic decisions for the ${library.target_role} role and see how each choice changes the outcome.`
+              : 'Practice realistic decisions for the role you are building toward and see how each choice changes the outcome.'}
           </p>
         </div>
         <div className="scn-hero-actions">
-          <button className="btn btn-ghost btn-block" onClick={onHistory} aria-label="View scenario history">
+          <button className="btn btn-outline btn-block" onClick={onHistory} aria-label="View scenario history">
             <IconClock size={15} /> History
           </button>
           {hasTarget && (
@@ -270,26 +270,26 @@ function LibraryView({
       </div>
 
       <div className="scn-stats">
-        <div className="scn-stat panel">
+        <div className="scn-stat panel hcard-progress">
           <span className="scn-stat-icon"><IconClock size={15} /></span>
           <div><strong>{stats.practice_time_minutes} min</strong><span>Practice time</span></div>
         </div>
-        <div className="scn-stat panel">
+        <div className="scn-stat panel hcard-progress">
           <span className="scn-stat-icon"><IconUsers size={15} /></span>
           <div><strong>{stats.scenarios_completed}/{library.scenarios.length}</strong><span>Scenarios completed</span></div>
         </div>
-        <div className="scn-stat panel">
+        <div className="scn-stat panel hcard-progress">
           <span className="scn-stat-icon"><IconTrophy size={15} /></span>
           <div><strong>{stats.average_score != null ? `${stats.average_score}%` : '—'}</strong><span>Average score</span></div>
         </div>
-        <div className="scn-stat panel">
+        <div className="scn-stat panel hcard-progress">
           <span className="scn-stat-icon"><IconBolt size={15} /></span>
           <div><strong>{stats.skills_practiced}</strong><span>Skills practiced</span></div>
         </div>
       </div>
 
       {hasTarget && recommendedNext && (
-        <section className="panel scn-next" aria-label="Recommended next scenario">
+        <section className="panel scn-next hcard-action" aria-label="Recommended next scenario">
           <div className="scn-next-label"><IconBolt size={14} /> Recommended next</div>
           <div className="scn-next-body">
             <div className="scn-next-info">
@@ -412,7 +412,7 @@ function ScenarioCardView({ scn, recommended, hasTarget, onStart, onDetails }: {
   onDetails: () => void
 }) {
   return (
-    <article className="panel scn-card">
+    <article className={`panel scn-card${recommended ? ' hcard-action' : ' hcard-info'}`}>
       <div className="scn-card-top">
         <span className="scn-cat">{scn.category_icon} {scn.category_label}</span>
         {scn.family_label && <span className="scn-fam">{scn.family_icon} {scn.family_label}</span>}
@@ -439,7 +439,7 @@ function ScenarioCardView({ scn, recommended, hasTarget, onStart, onDetails }: {
         )}
         {scn.status === 'completed' && scn.attempts_count > 1 && <span className="scn-attempts">{scn.attempts_count} attempts</span>}
         <div className="scn-card-actions">
-          <button className="btn btn-ghost btn-sm" onClick={onDetails} aria-label={`See details for ${scn.title}`}>
+          <button className="btn btn-outline btn-sm" onClick={onDetails} aria-label={`See details for ${scn.title}`}>
             <IconEye size={13} /> Details
           </button>
           <button className="btn btn-primary btn-sm" onClick={onStart}>

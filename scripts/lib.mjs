@@ -92,12 +92,32 @@ export function npmCmd() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm'
 }
 
+// A writable, project-local npm cache. Some machines have a root-owned global
+// cache (especially after `sudo npm ...`), which makes `npm install` fail with
+// EACCES. Pointing npm at a cache inside the project avoids that entirely and
+// never requires the user to chown anything.
+export function npmCacheDir() {
+  const dir = path.join(ROOT, '.npm-cache')
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+export function npmEnv() {
+  return { npm_config_cache: npmCacheDir() }
+}
+
 export function run(cmd, argList, opts = {}) {
+  const env = { ...process.env, ...(opts.env || {}) }
+  // Every npm invocation launched through this helper uses the project cache
+  // unless the caller explicitly overrides it.
+  if (/^(npm|npm\.cmd)$/.test(path.basename(cmd)) && !env.npm_config_cache) {
+    env.npm_config_cache = npmCacheDir()
+  }
   const r = spawnSync(cmd, argList, {
     cwd: opts.cwd || ROOT,
     stdio: opts.stdio === undefined ? 'inherit' : opts.stdio,
     shell: process.platform === 'win32' && !opts.noShell,
-    env: { ...process.env, ...(opts.env || {}) },
+    env,
   })
   if (r.status !== 0) {
     if (!opts.allowFail) {

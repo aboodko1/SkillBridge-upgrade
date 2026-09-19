@@ -31,7 +31,13 @@ def _blueprint_order(skill_name):
     order = {}
     comps = sb.required_competencies(skill_name, "Beginner", "Advanced")
     for i, comp in enumerate(comps):
-        order[comp.strip().lower()] = i
+        label = comp.strip().lower()
+        order[label] = i
+        # Diagnostic topic results carry the machine slug (e.g. python_functions)
+        # while the blueprint stores human labels; index both so prerequisite
+        # order is respected regardless of which representation reaches us.
+        order[label.replace("_", " ")] = i
+        order[sb.competency_slug(comp)] = i
     return order
 
 
@@ -63,7 +69,8 @@ def build_personalized_path(skill, diagnostic, required_level=None):
         slug = t.get("competency") or dx.competency_slug(label)
         score = float(t.get("score") or 0)
         action = "learn" if status == dx.WEAK else "review"
-        b_order = blueprint_order.get((label or "").strip().lower(), 10**9)
+        b_order = blueprint_order.get(
+            (label or "").strip().replace("_", " ").lower(), 10**9)
         selected.append({
             "label": label,
             "slug": slug,

@@ -1,208 +1,163 @@
-# SkillBridge Current Update — Team Handoff
+# SkillBridge combined release — team handoff
 
-**Prepared:** 12 September 2026  
-**Project:** SkillBridge  
-**Current phase boundary:** Phases A–H complete; Phase I planned but not implemented
+**Prepared:** 19 September 2026
 
-## 1. Executive summary
+**Repository:** `aboodko1/SkillBridge-upgrade`
 
-This handoff contains the team's original SkillBridge project plus the completed upgrades through Phase H. The project remains a React/TypeScript frontend served by a FastAPI backend with SQLite persistence. Existing routes, user roles, provider integrations, and environment-variable names were preserved.
+**Purpose:** one public, source-only team baseline combining the latest frontend, backend, tests,
+plans, and cross-platform launch scripts.
 
-The next team member should begin with Phase I. OpenCode created `PROVIDER_HEALTH_DIAGNOSTICS_PLAN.txt` and inspected the relevant code, but its usage limit stopped before Phase I implementation. Do not describe Phase I as complete.
+## Read this first
 
-## 2. Product overview
+This release is suitable for continued team development, but it is not a claim that every visual
+screen is finished. The application compiles, builds, passes the complete backend suite, and its
+core routes were smoke-tested. A focused visual-accessibility cleanup remains necessary and is
+listed below.
 
-SkillBridge connects three user groups:
+Historical handoffs are retained under `docs/archive/handoffs/` for traceability. They are not the
+current source of truth.
 
-- Students assess skills, choose target roles, follow learning paths, practise scenarios, use AI tutoring, save roles, and view matched jobs.
-- Companies define real job roles and required skills, inspect skill coverage, and map their roles to canonical catalog roles.
-- University administrators view anonymized outcomes and operate the controlled ESCO catalog refresh API.
+## What was combined
 
-The main data loop is: company requirements → student skill evidence → gap analysis → personalized learning and practice → reassessment → updated verified profile → improved role/job matching.
+### Product experience
 
-## 3. Completed work
+- Student, Company, and University experiences with role-aware navigation.
+- Professional and Casual Pulse presentation modes with light, dark, and system appearance.
+- Responsive dashboard, Skills & Roles explorer, learning, practice scenarios, assessments, jobs,
+  and university analytics.
+- Unified career journey from role selection through learning, practice, verification, and applying.
+- Explainable target-role and job-match scores backed by the backend calculation payload.
+- Role Explorer, role details, comparisons, transitions, recently viewed roles, saved roles, and
+  target-role selection.
+- Real-provider job aggregation with normalization, deduplication, caching, health states, safe
+  links, dead-link reporting, filters, and pagination.
+- Private saved-job and application tracker with stage history, notes, deadlines, and preparation
+  guidance.
 
-### Phase A — Baseline and audit
+### AI learning and copilot
 
-- Captured the starting state, routes, database behavior, UI behavior, providers, and verification commands.
-- Documented the baseline in `BASELINE_BEFORE_BACKEND_ROLES_JOBS_UI.txt`.
+- Personalized learning paths, diagnostics, lessons, practice, mini-checks, and next-step
+  orchestration.
+- Four mentor identities (Nova, Axel, Sage, Vex), persisted preferences, conversation history,
+  memory controls, English/Arabic behavior, and deterministic fallback behavior.
+- Copilot onboarding quiz, manual copilot settings, collapsible/expandable panel, chat composer,
+  suggestions, response actions, and interview mode.
+- Live voice controls for speech-to-text and text-to-speech, with explicit English/Arabic selection
+  and provider-failure fallback.
+- Career artifacts and trusted knowledge-base support.
 
-### Phase B — Database/API reliability foundation
+### Backend and trust foundation
 
-- Added an ordered SQLite migration system and migration ledger.
-- Added request IDs to responses/errors and reliability checks.
-- Preserved the existing database and API contracts.
+- FastAPI + SQLite data layer with ordered migrations `0001` through `0014`.
+- Hashed, expiring, revocable auth sessions; reset-token invalidation and rate limiting.
+- Canonical role/skill model, ESCO import ledger, company-role mapping, and provenance.
+- Student ownership checks and role authorization around private routes.
+- Request-scoped provider diagnostics, redacted health responses, cache correctness, and honest
+  demo/offline behavior.
+- Assessment integrity events and verified-skill separation from self-reported claims.
 
-### Phase C — Authentication and session hardening
+### Source and verification assets
 
-- New session tokens are stored as SHA-256 hashes rather than raw bearer tokens.
-- Sessions have expiry, heartbeat/last-seen behavior, and revocation.
-- Password resets revoke existing sessions.
-- Login and reset-request rate limits were added.
-- Legacy sessions remain readable during migration but are subject to expiry.
+- All application source, tests, frontend contract checkers, browser-regression harnesses,
+  configuration examples, Docker/dev-container files, launch scripts, and phase plans.
+- A pull-request checklist, issue templates, and a security policy.
+- Archived historical handoffs for context without presenting them as current instructions.
 
-### Phase D — Canonical roles and skills
+## Verification completed on this exact combined source
 
-- Added stable role keys, normalized titles, role families, statuses, aliases, ISCO codes, parent/supersession links, and skill provenance.
-- Added normalized role search and migration `0003_canonical_roles`.
+| Gate | Result |
+|---|---|
+| Frontend TypeScript | `npx tsc --noEmit` passed |
+| Frontend production build | passed; non-blocking large-chunk advisory remains |
+| Frontend contract checkers | 29/29 passed |
+| Backend suite | 1614 passed, 5 skipped |
+| Isolated server startup | passed on loopback with a fresh audit database |
+| Authenticated HTTP smoke | login, auth/me, metrics, roles, jobs, learning, copilot, onboarding, scenarios, and tracker returned 200 |
+| Browser console smoke | no console errors or warnings |
+| Theme/interaction smoke | Professional/Casual Pulse, light/dark/system, and copilot collapse/expand worked |
+| Secret scan | no real environment file, private key, known provider key pattern, or database included |
 
-### Phase E — Versioned ESCO import and refresh
+The backend run also emitted 584 deprecation warnings, mainly from FastAPI/httpx, cryptography, and
+audio-library APIs. They do not fail the suite but should be paid down before production work.
 
-- Added a controlled preview-then-apply ESCO refresh workflow.
-- Added version/language pins, import fingerprints, run/change ledgers, drift protection, and admin-only endpoints.
-- Added migration `0004_esco_import`.
-- Automated tests use fixtures and do not spend provider quota.
+## Known issues — do not hide these
 
-### Phase F — Company role to canonical role mapping
+### Priority 1: visual clarity and accessibility
 
-- Added ranked canonical-role suggestions with confidence and explanations.
-- Mapping is always confirmed by a human; it is never applied automatically.
-- Added confirm/change/unmap operations and append-only mapping history.
-- Added the company mapping panel to Skills & Roles.
-- Added migration `0005_company_role_mapping`.
+The visual guardian found 200 genuine/pre-existing findings after overlay allowances: 184 contrast,
+5 zero-size, 5 accessible-name, and 6 clipping findings. Confirmed examples in Professional Dark:
 
-### Phase G — Correct multi-user jobs cache
+- the `Real jobs matching your skills` heading can become nearly invisible;
+- the expanded `How is this score built?` row can render as a bright bar with low-contrast text;
+- some expanded AI tutor headings/body text are too dark against the panel;
+- small labels inside circular score rings feel cramped and need typographic/spacing refinement.
 
-- Replaced the single shared cache entry with a bounded, TTL-based LRU cache.
-- Cache keys now include every input that changes results without storing user identity, raw CV text, URLs, emails, or credentials.
-- Added concurrent-request deduplication and request-isolated provider reports.
-- Added honest feed states: `fresh`, `cached`, `stale_fallback`, and `unavailable`.
+Treat this as a whole-app token and component-state repair. Do not patch only the screenshots above.
+Verify 1440, 1024, 768, and 390 widths in both themes, including Arabic/RTL and keyboard focus.
 
-### Phase H — Job normalization, deduplication, and link quality
+### Priority 2: visual regression baselines
 
-- Added a normalized internal job record with provider identity, fingerprints, provenance, work type, seniority, excerpts, dates, and link/listing state.
-- Added conservative deduplication by provider ID, apply URL, or strict identity fallback.
-- Unsafe schemes and private/internal hosts are rejected offline.
-- Verified-dead links are retained internally for provenance but not shown in the feed.
-- No test performs live link probes.
+The screenshot harness captured 160 views: 60 unchanged and 100 with styling differences, with a
+maximum 4.86% pixel delta. Most differences were accent bars and outlines, but the current visual
+state still needs human approval before accepting new baselines.
 
-### Earlier visible product upgrades retained
+### Priority 3: performance
 
-- Three role-specific interfaces: Student, Company, and University Admin.
-- Save Roles.
-- Role-targeted practice scenarios with eight professional families plus safe generic blueprints.
-- Scenario library, difficulty/status filters, history, hints, decision feedback, save/resume, and follow-up actions.
-- Connected navigation between role details, learning, practice, and assessment.
-- AI tutor modes/personas and multilingual behavior already present in the project.
-- Multi-provider jobs feed with honest availability indicators.
+The Vite build succeeds but reports large chunks (approximately 738 KB and 1.28 MB before gzip).
+Introduce route/component splitting only after measuring the current load and interaction timings.
 
-## 4. Current verification state
+### Priority 4: live providers
 
-- Last completed Phase H gate recorded: **991 passed, 5 skipped** backend tests.
-- Frontend type check and Vite build were recorded clean at the Phase H gate.
-- Migrations `0001` through `0005` are applied to the current local database.
-- Fresh full backend verification for this handoff: **991 passed, 5 skipped** in 4m43s.
-- Fresh frontend verification: **TypeScript check passed; Vite production build passed**.
-- The frontend build reports a non-failing large-chunk warning; record code splitting as Phase S performance work.
+- Voice synthesis requires a valid provider key and quota; an exhausted ElevenLabs account returns
+  a handled service error instead of audio.
+- Job-provider availability varies. The feed reports provider status and cached/stale state rather
+  than pretending all sources are live.
+- High-volume Egypt coverage still needs approved Egypt/MENA providers and scheduled ingestion. Do
+  not scrape protected boards or call upstream providers every ten seconds.
 
-## 5. Not finished
+### Priority 5: documentation history
 
-### Phase I — Honest provider health and diagnostics (next)
+`AGENTS.md` is an implementation journal and contains older stop points and test totals. Keep it for
+traceability, but use this handoff and the code/tests as the current boundary.
 
-Status: **plan only; implementation not started**.
+## Recommended next work
 
-Required work:
+1. Fix the design-token/state foundation for text contrast, semantic colors, focus, spacing,
+   overflow, and score-ring labels across both presentation modes.
+2. Run the guardian and screenshot matrix at 1440/1024/768/390, light/dark, English/Arabic; review
+   every remaining exception before accepting baselines.
+3. Add route-level code splitting and record before/after bundle and interaction measurements.
+4. Complete a real-provider acceptance pass for all four mentors in English and Arabic using a
+   funded TTS account, without recording keys or audio containing private data.
+5. Decide the approved Egypt/MENA jobs-provider strategy, then build scheduled ingestion and
+   database search rather than ten-second upstream polling.
+6. Run an independent release review with no source edits, then tag the accepted prototype.
 
-- Add the exact public health vocabulary: `unconfigured`, `healthy`, `empty_success`, `cached`, `stale_fallback`, `rate_limited`, `unauthorized`, `network_unreachable`, `timeout`, `malformed_response`, `disabled_by_feature_flag`, and `unknown`.
-- Preserve legacy `status` fields for frontend compatibility and add the new `health` field.
-- Add request-scoped IDs to provider/build logs without logging search terms, CV data, URLs, or keys.
-- Add a short, quota-free health snapshot cache.
-- Harden public error redaction.
-- Add offline tests for empty success, rate limits, timeouts, unauthorized responses, disabled providers, concurrency, transitions, redaction, and backward compatibility.
+## Packaging and credential rules
 
-The approved design is in `PROVIDER_HEALTH_DIAGNOSTICS_PLAN.txt`.
+- GitHub is source-only. It intentionally excludes `.env`, databases, uploads, dependency folders,
+  generated builds, regression output, transcripts, and credentials.
+- Transfer the private `.env` separately through an approved secure channel. Do not email it, paste
+  it into an issue, or add it to an archive uploaded to GitHub.
+- Start from `.env.example`; rotate any credential that has ever appeared in chat, screenshots,
+  commit history, or an old shared ZIP.
+- No production deployment should use the seeded demo passwords.
 
-### Later phases
-
-- **J:** explainable role and job matching.
-- **K:** saved jobs and a private application tracker.
-- **L:** dedicated Role Explorer UI.
-- **M:** role details, comparison, and career transitions.
-- **N:** full Jobs Board and match experience.
-- **O:** genuinely role-specific dashboards.
-- **P:** broader profession-aware scenario coverage.
-- **Q:** unified learning and job-application journey.
-- **R:** accessibility, Arabic RTL, responsive behavior, and visual consistency.
-- **S:** safe observability, performance bounds, and warning cleanup.
-- **T:** fresh-session review without edits.
-- **U:** complete offline and live verification.
-- **V:** final reports and private delivery package.
-
-## 6. Known problems and risks
-
-1. **GitHub publication blocker:** a populated file named `env` is tracked in the existing Git history, and a populated `.env` exists locally. Never push that history or either populated file to GitHub. Rotate any key that may already have been shared.
-2. **No GitHub destination is configured:** the local repository has no remote, and GitHub CLI is not installed. The owner must supply the exact repository URL and choose private/public visibility.
-3. **Provider availability:** the last live check reported only 7 of 12 job providers available. JSearch was rate-limited, LinkedIn/Google returned subscription errors, and Jooble was unreachable. The application degrades honestly, but regional feeds may be thin.
-4. **Phase I status mismatch:** the current provider diagnostics still use legacy status/reason combinations and do not yet implement the approved exact health vocabulary.
-5. **No ESCO admin frontend:** ESCO refresh is backend-only.
-6. **Role Explorer and Jobs Board are not yet dedicated full interfaces:** these are Phases L and N.
-7. **Frontend testing is mostly contract/browser based:** there is no conventional frontend unit-test stack yet.
-8. **Warning volume:** the full backend suite previously emitted thousands of warnings; address this in Phase S without hiding meaningful warnings.
-9. **Docker path is not fully verified:** Docker files exist, but they were not part of the completed A–H runtime gate.
-10. **LocalStorage bearer token:** the frontend stores the bearer token in `localStorage`. This is compatible with the current app but increases impact if an XSS bug is introduced. A production deployment should evaluate secure HttpOnly cookies plus CSRF protection.
-11. **Development CORS:** the backend currently permits all origins. Limit origins before an internet-facing deployment.
-12. **Prototype integrity scope:** webcam monitoring is metadata-only and is not production proctoring, video recording, or biometric verification.
-
-## 7. Recommendations
-
-### Immediate handoff priorities
-
-1. Finish Phase I exactly from its approved plan and add the full offline test matrix.
-2. Re-run the full backend suite, TypeScript check, Vite build, source-contract scripts, and live three-role walkthrough.
-3. Keep all provider calls out of automated tests.
-4. Update `AGENTS.md` and both handoff reports after every completed phase.
-
-### Product priorities after Phase I
-
-1. Build Phase J explainers so users understand why a role/job matches and what action improves the score.
-2. Build Phase K application tracking with private notes, status history, reminders, and export.
-3. Combine Phases L–N into a coherent Role Explorer → Role Detail → Job Board journey.
-4. Use real backend state for role dashboards; do not create decorative or mocked metrics.
-5. Complete Arabic RTL and keyboard/screen-reader work before adding more visual decoration.
-
-### Deployment/security priorities
-
-1. Publish a **clean source-only GitHub history** containing `.env.example`, API/provider code, migrations, tests, and documentation—but no populated environment files, database, uploads, virtual environments, dependencies, or generated build output.
-2. Keep a separate **private team package** if the team truly requires runtime data. Transfer credentials using a password manager or encrypted channel, not GitHub.
-3. Rotate the existing provider keys because the tracked `env` file means they must be treated as potentially exposed.
-4. Before public/internet deployment, restrict CORS, add security headers, review token storage, disable demo credentials, and use a production database/service configuration.
-
-## 8. Files the next agent must read first
-
-1. `AGENTS.md`
-2. `TEAM_HANDOFF_CURRENT_STATUS.md` or `TEAM_HANDOFF_CURRENT_STATUS.txt`
-3. `PROVIDER_HEALTH_DIAGNOSTICS_PLAN.txt`
-4. `JOB_LINK_QUALITY_PLAN.txt`
-5. `JOB_CACHE_CORRECTNESS_PLAN.txt`
-6. `AUTH_SESSION_MIGRATION_PLAN.txt`
-7. `CANONICAL_ROLE_MODEL_PLAN.txt`
-8. `ESCO_IMPORT_REFRESH_PLAN.txt`
-9. `COMPANY_ROLE_MAPPING_PLAN.txt`
-
-## 9. Run and verify
-
-Backend tests on macOS with the current local environment:
+## Start here
 
 ```bash
-cd backend
-../.venv-mac/bin/python -m pytest -q -p no:cacheprovider -p no:randomly tests/
+git clone https://github.com/aboodko1/SkillBridge-upgrade.git
+cd SkillBridge-upgrade
+npm start
 ```
 
-Frontend verification:
+Then open the URL printed by the launcher. Use `npm start -- --reset` for a fresh seeded demo.
 
-```bash
-cd frontend
-npm run typecheck
-npm run build
-```
+Before changing code:
 
-Use the repository's cross-platform start scripts/README for a fresh machine. Run Uvicorn from `backend/` because imports use the `app.*` package path.
-
-## 10. Packaging rule
-
-There are two different deliverables:
-
-- **GitHub source repository:** safe to clone; contains all source code, API integrations, environment variable names/examples, migrations, tests, and docs; excludes all live secrets and machine-generated/runtime data.
-- **Private team handoff archive:** may retain the owner's complete local runtime copy when explicitly required, but must be transferred privately and never committed or attached to a public issue/repository.
-
-Nothing in the product/API implementation is removed from the GitHub version. Only credentials and reproducible/private runtime artifacts are omitted from GitHub.
+1. Create a branch from the latest `main`.
+2. Read this handoff, `README.md`, and the plan relevant to your task.
+3. Reproduce the issue and save evidence without secrets.
+4. Keep backend truth and permissions intact when changing the UI.
+5. Run TypeScript, build, relevant contract checks, backend tests, and the visual matrix.
+6. Open a pull request using the included checklist; do not push unfinished work directly to `main`.
