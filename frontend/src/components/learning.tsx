@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import type { LearningItem, LearningResource, PersonalizedPath, SkillGap, TutorMode } from '../lib/types'
 import { GapPill } from './widgets'
 import { humanizeTopicLabel } from '../lib/topicLabels'
@@ -11,6 +11,7 @@ import {
   IconChat,
   IconCheck,
   IconClipboard,
+  IconClock,
   IconExternal,
   IconLightbulb,
   IconRoadmap,
@@ -230,6 +231,85 @@ export function ContinueLearningCard({ gap, path, onSelect }: {
         </button>
       </div>
     </article>
+  )
+}
+
+export type MilestoneState = 'completed' | 'current' | 'upcoming' | 'locked' | 'needs_review'
+
+export const MILESTONE_LABELS: Record<MilestoneState, string> = {
+  completed: 'completed',
+  current: 'current',
+  upcoming: 'upcoming',
+  locked: 'locked',
+  needs_review: 'needs review',
+}
+
+export function topicMilestoneState(
+  isDone: boolean,
+  isCurrent: boolean,
+  lessonState?: string,
+  miniCheckResult?: { passed?: boolean } | null,
+): MilestoneState {
+  if (isDone) return 'completed'
+  if (isCurrent) {
+    const needsReview = lessonState === 'in_progress' && miniCheckResult && !miniCheckResult.passed
+    return needsReview ? 'needs_review' : 'current'
+  }
+  return 'upcoming'
+}
+
+export function stageMilestoneState(isDone: boolean, locked: boolean): MilestoneState {
+  if (isDone) return 'completed'
+  return locked ? 'locked' : 'upcoming'
+}
+
+export function MilestoneChip({ state }: { state: MilestoneState }) {
+  return (
+    <span className={`pp-milestone pp-milestone-${state}`} title={`Milestone status: ${MILESTONE_LABELS[state]}`}>
+      {MILESTONE_LABELS[state]}
+    </span>
+  )
+}
+
+export function WhyThis({ label = 'Why this?', children }: {
+  label?: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="why-this">
+      <button type="button" className="why-this-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {label}
+      </button>
+      {open && <span className="why-this-body">{children}</span>}
+    </span>
+  )
+}
+
+export function CurrentLessonCard({ skillName, topicTitle, estimatedMinutes, purpose, onContinue }: {
+  skillName: string
+  topicTitle: string
+  estimatedMinutes?: number
+  purpose: string
+  onContinue: () => void
+}) {
+  return (
+    <div className="journey-card">
+      <div className="journey-card-icon"><IconRoadmap size={18} /></div>
+      <div className="journey-card-copy">
+        <span className="cc-kicker">{skillName}</span>
+        <h3>{topicTitle}</h3>
+        <p className="muted small">
+          {purpose}
+          {estimatedMinutes ? <> · <span className="pp-est"><IconClock size={13} /> ~{estimatedMinutes} min</span></> : null}
+        </p>
+      </div>
+      <div className="journey-card-actions">
+        <button className="btn btn-primary" onClick={onContinue}>
+          <IconArrowRight size={14} /> Continue learning
+        </button>
+      </div>
+    </div>
   )
 }
 

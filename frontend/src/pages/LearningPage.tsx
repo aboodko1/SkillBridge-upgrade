@@ -13,16 +13,21 @@ import type {
 import {
   CareerProgress,
   ContinueLearningCard,
+  CurrentLessonCard,
   EmptyLearningState,
   LearningProgress,
   LearningTabs,
+  MilestoneChip,
   ResourceCard,
   RoadmapTimeline,
   SearchBar,
   SectionTitle,
   SkillCard,
   SkillDetailHeader,
+  stageMilestoneState,
+  topicMilestoneState,
   topicProgressFor,
+  WhyThis,
   type LearningTab,
 } from '../components/learning'
 import { IconAlert, IconArrowRight, IconAssessment, IconBack, IconBolt, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconExternal, IconLock, IconRoadmap, IconShield, IconTarget } from '../components/Icons'
@@ -317,6 +322,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const [activeTab, setActiveTab] = useState<LearningTab>('for-you')
   const [showTop, setShowTop] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [pathsLoaded, setPathsLoaded] = useState(false)
   const [activity, setActivity] = useState<ActivitySummary | null>(null)
   const [scenarioLib, setScenarioLib] = useState<ScenarioLibrary | null>(null)
   // The stored student profile answers "My Skills": self-reported claims and
@@ -403,8 +409,10 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     const ids = openGaps.map((gap) => gap.skill_id)
     if (!studentId || !ids.length) {
       setPathsBySkill({})
+      setPathsLoaded(true)
       return () => { alive = false }
     }
+    setPathsLoaded(false)
     Promise.all(ids.map(async (skillId) => {
       try {
         const res = await api.personalizedPath(studentId, skillId)
@@ -415,6 +423,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     })).then((entries) => {
       if (!alive) return
       setPathsBySkill(Object.fromEntries(entries))
+      setPathsLoaded(true)
     })
     return () => { alive = false }
   }, [studentId, openGapSkillKey])
@@ -648,6 +657,13 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     me?.student?.target_role?.company_name ||
     (targetTitle ? 'Current target from your profile' : 'Choose one from Skills & Roles')
 
+  const journeyGap = continueSkills[0] ?? null
+  const journeyPath = journeyGap ? (pathsBySkill[journeyGap.skill_id] ?? null) : null
+  const journeyDoneIds = new Set(journeyPath?.progress ?? [])
+  const journeyTopic = journeyPath?.items.find((it) => !journeyDoneIds.has(it.id)) ?? journeyPath?.items[0] ?? null
+  const journeyPlanlessGap = openGaps.find((g) => !pathsBySkill[g.skill_id]) ?? null
+  const journeyOpenPaths = openGaps.filter((g) => !!pathsBySkill[g.skill_id])
+
   return (
     <div className="learning-page">
       {backTo && (
@@ -701,7 +717,10 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           <div className="hero-target-role">{targetTitle || 'No target selected'}</div>
           {matchPct !== null && (
             <>
-              <p className="hero-progress-label" title="Level-aware coverage of your target role's required skills (backend-computed).">Current requirement coverage <strong>{matchPct}%</strong></p>
+              <p className="hero-progress-label" title="Level-aware coverage of your target role's required skills (backend-computed).">
+                Current requirement coverage <strong>{matchPct}%</strong>{' '}
+                <WhyThis>Coverage compares your verified and self-reported evidence against the skills this target role lists (level-aware). It measures how far your profile reaches into the role's requirements — it is not a hiring guarantee.</WhyThis>
+              </p>
               <div className="progress-track"><div className="progress-fill" style={{ width: `${matchPct}%` }} /></div>
             </>
           )}
@@ -716,6 +735,99 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           placeholder="Search a skill, topic, or ask AI Tutor..."
         />
         <LearningTabs active={activeTab} counts={tabCounts} onChange={setActiveTab} />
+      </section>
+
+      <section className="journey-band" aria-label="Continue your plan">
+        {pathsLoaded && journeyGap && journeyTopic ? (
+          <div className="journey-band-inner">
+            <p className="journey-eyebrow">Continue your plan</p>
+            <CurrentLessonCard
+              skillName={journeyGap.skill_name}
+              topicTitle={humanizeTopicLabel(journeyTopic.title)}
+              estimatedMinutes={journeyTopic.estimated_minutes}
+              purpose={`Added because your diagnostic score was ${Math.round(journeyTopic.diagnostic_score)}%.`}
+              onContinue={() => openLessonTopic(journeyGap.skill_id, journeyTopic.competency)}
+            />
+            {continueSkills.length > 1 && (
+              <p className="muted small journey-more">
+                {continueSkills.length - 1} other plan{continueSkills.length - 1 === 1 ? '' : 's'} still in progress — see In-progress paths below.
+              </p>
+            )}
+          </div>
+        ) : pathsLoaded && journeyPlanlessGap ? (
+          <div className="journey-band-inner journey-empty">
+            <p className="journey-eyebrow">Continue your plan</p>
+            <div className="journey-card">
+              <div className="journey-card-icon"><IconAssessment size={18} /></div>
+              <div className="journey-card-copy">
+                <span className="cc-kicker">{journeyPlanlessGap.skill_name}</span>
+                <h3>No plan yet</h3>
+                <p className="muted small">
+                  Take a diagnostic for {journeyPlanlessGap.skill_name} to unlock a personalized path built from your weakest topics.
+                </p>
+              </div>
+              <div className="journey-card-actions">
+                <button className="btn btn-primary" onClick={() => startLearning(journeyPlanlessGap.skill_id)}>
+                  <IconAssessment size={14} /> Start a diagnostic
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : journeyOpenPaths.length > 0 ? (
+          <div className="journey-band-inner journey-empty">
+            <p className="journey-eyebrow">Continue your plan</p>
+            <div className="journey-card">
+              <div className="journey-card-icon"><IconBolt size={18} /></div>
+              <div className="journey-card-copy">
+                <h3>Your learning plans are ready</h3>
+                <p className="muted small">
+                  Every target skill has a path. Start the first topic of any plan to begin making progress.
+                </p>
+              </div>
+              <div className="journey-card-actions">
+                <button className="btn btn-primary" onClick={() => startLearning(openGaps[0].skill_id)}>
+                  <IconBook size={14} /> Start your first topic
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : analysis && !targetTitle ? (
+          <div className="journey-band-inner journey-empty">
+            <p className="journey-eyebrow">Continue your plan</p>
+            <div className="journey-card">
+              <div className="journey-card-icon"><IconTarget size={18} /></div>
+              <div className="journey-card-copy">
+                <h3>Pick a target role</h3>
+                <p className="muted small">
+                  Choose a role on Skills &amp; Roles and your skill gaps and personalized learning paths appear here.
+                </p>
+              </div>
+              <div className="journey-card-actions">
+                <button className="btn btn-primary" onClick={() => onNavigate?.('skills')}>
+                  <IconTarget size={14} /> Choose a target role
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : analysis && targetTitle ? (
+          <div className="journey-band-inner journey-empty">
+            <p className="journey-eyebrow">Continue your plan</p>
+            <div className="journey-card">
+              <div className="journey-card-icon"><IconCheck size={18} /></div>
+              <div className="journey-card-copy">
+                <h3>You're up to date</h3>
+                <p className="muted small">
+                  No open gaps right now. Keep exploring modules or verify a skill with an assessment.
+                </p>
+              </div>
+              <div className="journey-card-actions">
+                <button className="btn btn-primary" onClick={viewAllModules}>
+                  <IconBook size={14} /> View all learning modules
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="lp-stat-grid" aria-label="Learning stats">
@@ -1494,9 +1606,7 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
 
       <div className="lesson-nav">
         {tabs.map((t) => (
-          <button key={t} className={`lesson-tab ${tab === t ? 'active' : ''}`}
-            onClick={() => { if (!isCompleted || t === tab) setTab(t) }}
-            disabled={isCompleted && t !== tab}>
+          <button key={t} className={`lesson-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {tabLabels[t]}
           </button>
         ))}
@@ -1810,6 +1920,8 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
   const [showMastered, setShowMastered] = useState(false)
   const [done, setDone] = useState<string[]>([])
   const [lessonStates, setLessonStates] = useState<Record<string, Lesson['state']>>({})
+  const [lessonReviews, setLessonReviews] = useState<Record<string, { passed?: boolean } | null>>({})
+  const [showAllTopics, setShowAllTopics] = useState(false)
   const [openCompetency, setOpenCompetency] = useState<string | null>(null)
   const [focusTab, setFocusTab] = useState<'learn' | 'example' | 'practice' | 'discuss' | 'mini_check'>('learn')
   const [finalStatus, setFinalStatus] = useState<FinalAssessmentStatus | null>(null)
@@ -1833,6 +1945,7 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
   const syncLessonStates = async (nextPath: PersonalizedPath | null) => {
     if (!nextPath) {
       setLessonStates({})
+      setLessonReviews({})
       return {}
     }
     const entries = await Promise.all(nextPath.items.map(async (item) => {
@@ -1845,6 +1958,15 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
     }))
     const states = Object.fromEntries(entries) as Record<string, Lesson['state']>
     setLessonStates(states)
+    const reviews = await Promise.all(nextPath.items.map(async (item) => {
+      try {
+        const lesson = await api.lessonGet(studentId, skillId, item.competency)
+        return [item.competency, lesson.mini_check_result ?? null] as const
+      } catch {
+        return [item.competency, null] as const
+      }
+    }))
+    setLessonReviews(Object.fromEntries(reviews) as Record<string, { passed?: boolean } | null>)
     return states
   }
 
@@ -1988,6 +2110,7 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
     return 'Not started'
   }
   const stateClass = (state: string) => state.toLowerCase().replace(/\s+/g, '-')
+  const currentCompetency = path?.items.find((item) => !completedIds.has(item.id))?.competency ?? null
 
   return (
     <section className="personalized-path-panel">
@@ -2042,22 +2165,25 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
             </div>
             <div className="lp-track"><span style={{ width: `${progress.pct}%` }} /></div>
             <p className="muted small">
-              Topics complete only after a Mini Check pass. This does not create a Verified Skill.
+              Topics complete only after a Mini Check pass. This does not create a Verified Skill.{' '}
+              <WhyThis>Study progress never grants a Verified Skill — only a proctored Final Assessment on the Assessments page does. This number tracks lessons whose Mini Check you passed, nothing more.</WhyThis>
             </p>
           </div>
 
           <div className="pp-timeline">
-            {path.items.map((item) => {
+            {(showAllTopics ? path.items : path.items.slice(0, 8)).map((item) => {
               const isDone = done.includes(item.id)
               const topicState = stateFor(item)
+              const isCurrent = item.competency === currentCompetency
               return (
-                <div className={`pp-item ${isDone ? 'is-done' : ''}`} key={item.id}>
+                <div className={`pp-item ${isDone ? 'is-done' : ''} ${isCurrent ? 'is-current' : ''}`} key={item.id}>
                   <div className={`pp-state-dot pp-state-${stateClass(topicState)}`}>
                     {isDone ? <IconCheck size={15} /> : <span />}
                   </div>
                   <div className="pp-item-body" onClick={() => openLesson(item.competency)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') openLesson(item.competency) }}>
                     <div className="pp-item-top">
                       <span className="pp-order">{String(item.order).padStart(2, '0')}</span>
+                      <MilestoneChip state={topicMilestoneState(isDone, isCurrent, lessonStates[item.competency], lessonReviews[item.competency])} />
                       <span className={`chip-btn pp-status-chip pp-status-${item.topic_status}`}>{cap(item.topic_status)}</span>
                       <span className={`chip-btn pp-action-chip pp-action-${item.action}`}>{item.action}</span>
                       <span className={`chip-btn pp-topic-state pp-topic-state-${stateClass(topicState)}`}>{topicState}</span>
@@ -2072,6 +2198,14 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
               )
             })}
 
+            {!showAllTopics && path.items.length > 8 && (
+              <div className="pp-more-wrap">
+                <button type="button" className="pp-more-toggle" onClick={() => setShowAllTopics(true)}>
+                  <IconChevron size={14} /> Show all {path.items.length - 8} more topics
+                </button>
+              </div>
+            )}
+
             {path.stages.map((stage) => {
               const isDone = done.includes(stage.id)
               const isFinalAssess = stage.id === 'final-assessment'
@@ -2083,6 +2217,7 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
                     </div>
                     <div className="pp-item-body">
                       <div className="pp-item-top">
+                        <MilestoneChip state={stageMilestoneState(isDone, false)} />
                         <span className="chip-btn pp-status-chip pp-status-milestone">milestone</span>
                         <span className={`chip-btn pp-action-chip pp-action-${isDone ? 'done' : 'available'}`}>
                           {isDone ? 'completed' : 'Available anytime'}
@@ -2105,6 +2240,7 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
                   </div>
                   <div className="pp-item-body">
                     <div className="pp-item-top">
+                      <MilestoneChip state={stageMilestoneState(isDone, !isDone)} />
                       <span className="chip-btn pp-status-chip pp-status-milestone">milestone</span>
                       <span className={`chip-btn pp-action-chip pp-action-${lockState}`}>{lockState}</span>
                     </div>

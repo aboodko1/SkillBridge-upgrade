@@ -8322,3 +8322,62 @@ button.user-chip { font-family: inherit; cursor: pointer; }
   .pulse-job-location, .pulse-job-tags { display: none; }
   .pulse-mentor-rail { grid-template-columns: 1fr; }
 }
+
+/* Phase 2 — learning plan as a trackable journey */
+.journey-band { margin-top: 22px; }
+.journey-band-inner { display: flex; flex-direction: column; gap: 8px; }
+.journey-eyebrow {
+  font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--sb-indigo); font-weight: 700;
+}
+.journey-card {
+  display: flex; align-items: center; gap: 16px;
+  border: 1px solid var(--slate-200); border-radius: 14px;
+  padding: 16px 18px; background: linear-gradient(180deg, var(--white), var(--slate-50));
+}
+.journey-card-icon {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  background: var(--sb-indigo-soft); color: var(--sb-indigo-dark);
+  display: flex; align-items: center; justify-content: center;
+}
+.journey-card-copy { flex: 1; min-width: 0; }
+.journey-card-copy h3 { margin: 2px 0 4px; font-size: 17px; color: var(--sb-midnight); }
+.journey-card-actions { flex-shrink: 0; }
+.journey-more { margin-top: 2px; }
+.pp-item.is-current { border-color: var(--sb-indigo); box-shadow: inset 3px 0 0 var(--sb-indigo); }
+.pp-milestone {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; padding: 3px 9px;
+  border-radius: 999px; border: 1px solid var(--slate-200);
+  background: var(--slate-100); color: var(--slate-600); cursor: default;
+}
+.pp-milestone-completed { border-color: var(--green); background: var(--green-soft); color: var(--green-dark); }
+.pp-milestone-current { border-color: var(--sb-indigo); background: var(--sb-indigo-soft); color: var(--sb-indigo-dark); }
+.pp-milestone-upcoming { border-color: var(--slate-200); background: var(--slate-100); color: var(--slate-600); }
+.pp-milestone-locked { border-color: var(--slate-200); background: transparent; color: var(--slate-400); text-decoration: line-through; text-decoration-thickness: 1px; text-decoration-color: var(--slate-300); }
+.pp-milestone-needs_review { border-color: var(--amber); background: var(--amber-soft); color: var(--amber); }
+.pp-more-wrap { margin-top: 4px; }
+.pp-more-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px dashed var(--slate-300); border-radius: 10px; background: transparent;
+  cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--slate-500);
+  padding: 8px 12px; width: 100%;
+}
+.pp-more-toggle:hover { color: var(--sb-indigo-dark); border-color: var(--sb-indigo); }
+.why-this { display: inline; }
+.why-this-btn {
+  display: inline; padding: 0; border: none; background: none; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--sb-indigo);
+  text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px;
+}
+.why-this-btn:hover { color: var(--sb-indigo-dark); }
+.why-this-btn[aria-expanded="true"] { text-decoration-style: solid; }
+.why-this-body {
+  display: inline-block; margin-top: 6px; padding: 8px 10px;
+  font-size: 12.5px; line-height: 1.45; color: var(--slate-600);
+  background: var(--sb-indigo-soft); border: 1px solid var(--slate-200); border-radius: 8px;
+}
+@media (max-width: 720px) {
+  .journey-card { flex-direction: column; align-items: stretch; }
+  .journey-card-actions { align-self: flex-start; }
+}
