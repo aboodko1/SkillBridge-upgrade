@@ -512,6 +512,7 @@ textarea.free-text:focus { outline: 2px solid var(--sb-indigo); outline-offset: 
 .quiz-progress-fill { height: 100%; background: var(--sb-indigo); border-radius: 6px; transition: width 0.35s ease; }
 
 .camera-consent-card,
+.asm-landing,
 .camera-precheck-card { border: 1.5px solid var(--sb-midnight); }
 .camera-panel-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
 .camera-panel-head h4 { margin: 0 0 4px; color: var(--sb-midnight-ink); }
@@ -8380,4 +8381,68 @@ button.user-chip { font-family: inherit; cursor: pointer; }
 @media (max-width: 720px) {
   .journey-card { flex-direction: column; align-items: stretch; }
   .journey-card-actions { align-self: flex-start; }
+}
+
+/* ---------------- Phase 3: Assessments that feel focused, not intimidating ---------------- */
+.asm-facts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+.asm-fact {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border: 1px solid var(--slate-200); border-radius: 999px;
+  background: var(--slate-50); color: var(--slate-600); font-size: 12.5px; font-weight: 600;
+}
+.asm-what-changes {
+  margin-bottom: 14px; padding: 10px 12px;
+  border: 1px dashed var(--slate-300); border-inline-start: 3px solid var(--sb-indigo); border-radius: 8px;
+  background: var(--sb-indigo-soft); color: var(--slate-700);
+}
+.asm-what-changes strong {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--sb-indigo-dark);
+}
+.asm-what-changes p { margin: 6px 0 0; line-height: 1.5; }
+.asm-what-changes b { color: var(--sb-indigo-dark); }
+
+/* quiz footer: Back / Next, progress stays Q x of N */
+.quiz-back.btn-ghost { color: var(--slate-500); }
+.quiz-back.btn-ghost:hover { color: var(--sb-indigo-dark); border-color: var(--slate-300); }
+
+/* result: strengths + improvement areas (max 3 each) and one primary next action */
+.result-focus-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 12px 0; }
+.result-focus { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--slate-200); }
+.result-focus h5 { color: var(--slate-500); }
+.result-strengths { background: var(--green-soft); }
+.result-improve { background: var(--amber-soft); }
+.asm-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 9px; border-radius: 999px; border: 1px solid; margin: 0 6px 6px 0;
+  font-size: 12.5px; font-weight: 500; color: var(--slate-700);
+}
+.asm-chip b { font-weight: 700; }
+.asm-chip.strong { background: var(--green-soft); border-color: var(--green); color: var(--green-dark); }
+.asm-chip.warn { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); }
+.result-focus .muted { display: block; line-height: 1.45; }
+.result-actions-wrap { flex-wrap: wrap; margin-top: 4px; }
+.asm-plan-cta { white-space: normal; }
+
+/* raw score breakdowns, rubric details, evidence behind View details */
+.result-details {
+  margin-top: 14px; border: 1px solid var(--slate-200); border-radius: 10px;
+  background: var(--slate-50); overflow: hidden;
+}
+.result-details summary {
+  cursor: pointer; display: flex; align-items: center; gap: 7px;
+  padding: 10px 12px; font-weight: 600; font-size: 13px; color: var(--slate-600);
+  list-style: none; user-select: none;
+}
+.result-details summary::-webkit-details-marker { display: none; }
+.result-details summary::after {
+  content: '▾'; margin-inline-start: auto; color: var(--slate-400); transition: transform 0.15s ease;
+}
+.result-details[open] summary::after { transform: rotate(180deg); }
+.result-details summary:hover { color: var(--sb-indigo-dark); }
+.result-details-body { padding: 4px 14px 14px; }
+
+@media (max-width: 720px) {
+  .asm-facts { flex-direction: column; align-items: flex-start; }
+  .result-focus-grid { grid-template-columns: 1fr; }
 }
