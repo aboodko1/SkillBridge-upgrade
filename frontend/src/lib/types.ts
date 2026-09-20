@@ -1295,6 +1295,17 @@ export interface TourStateUpdate {
   mini_states?: Partial<Record<TourMiniPage, TourMiniState>>
 }
 
+export interface MentorUiState {
+  student_id: number
+  panel_visible: boolean
+  updated_at: string | null
+  default?: boolean
+}
+
+export interface MentorUiUpdate {
+  panel_visible: boolean
+}
+
 export interface CopilotConfigResponse {
   configured: boolean
   copilot: CopilotConfigRecord | null

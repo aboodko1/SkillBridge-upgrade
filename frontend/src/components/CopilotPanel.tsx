@@ -5,7 +5,7 @@ import { api } from '../lib/api'
 import type { LearningItem, TutorConversation, TutorMessage, TutorMode } from '../lib/types'
 import { TUTOR_PROFILES, TutorAbout } from './learning'
 import type { TutorId } from '../lib/tutorProfiles'
-import { effectiveLanguage, LANGUAGE_LABELS, LANGUAGE_SHORT, quickActionsFor, TUTOR_LANGUAGES, tutorUi } from '../lib/tutorI18n'
+import { effectiveLanguage, LANGUAGE_LABELS, LANGUAGE_SHORT, quickActionsFor, contextualPromptsFor, TUTOR_LANGUAGES, tutorUi } from '../lib/tutorI18n'
 import { useBrowserSpeech } from '../hooks/useBrowserSpeech'
 import { isBraveBrowser } from '../lib/browserDetect'
 import { resolveInitialLiveLang, useVoiceSession } from '../hooks/useVoiceSession'
@@ -15,7 +15,7 @@ import { MoreMenu } from './MoreMenu'
 import { ChatThread } from './ChatThread'
 import { SuggestionGrid } from './SuggestionGrid'
 import { Composer } from './Composer'
-import { IconBack, IconBackRTL, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconCollapse, IconCopy, IconDots, IconExpand, IconHeadset, IconLightbulb, IconLock, IconMic, IconPlus, IconSendUp, IconShield, IconSparkles, IconStop, IconVolume, IconClipboard, IconWaveform } from './Icons'
+import { IconBack, IconBackRTL, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconCollapse, IconCopy, IconDots, IconExpand, IconEyeOff, IconHeadset, IconLightbulb, IconLock, IconMic, IconPlus, IconSendUp, IconShield, IconSparkles, IconStop, IconVolume, IconClipboard, IconWaveform } from './Icons'
 import { type ResponseRating } from './ResponseActions'
 
 function SafeMarkdown({ children }: { children: React.ReactNode }) {
@@ -60,6 +60,8 @@ export function CopilotPanel() {
   const studentId = session?.student?.id ?? 0
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [panelVisible, setPanelVisible] = useState(true)
+  const panelPrefLoaded = useRef(false)
   const [conversations, setConversations] = useState<TutorConversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null)
   const [chats, setChats] = useState<Record<number, TutorMessage[]>>({})
@@ -201,15 +203,34 @@ export function CopilotPanel() {
       .catch((e) => { console.error('[copilot] tutor history failed:', e) })
   }, [studentId, tutorId, activeConversationId, conversations, chats])
 
+  // Phase 5 — mentor UI preference (server-side, no browser storage): the
+  // hide/reopen choice survives a refresh from GET /api/students/{id}/mentor/ui.
+  useEffect(() => {
+    if (!studentId || panelPrefLoaded.current) return
+    panelPrefLoaded.current = true
+    api.mentorUi(studentId)
+      .then((s) => setPanelVisible(s.panel_visible))
+      .catch((e) => { console.error('[copilot] mentor ui preference failed:', e) })
+  }, [studentId])
+
+  const setPanelVisiblePersisted = useCallback((visible: boolean) => {
+    setPanelVisible(visible)
+    if (!studentId) return
+    api.setMentorUi(studentId, { panel_visible: visible })
+      .then((s) => setPanelVisible(s.panel_visible))
+      .catch((e) => { console.error('[copilot] mentor visibility save failed:', e) })
+  }, [studentId])
+
   useEffect(() => {
     const onFocus = (event: Event) => {
+      setPanelVisiblePersisted(true)
       setOpen(true)
       const prompt = (event as CustomEvent<{ prompt?: string }>).detail?.prompt
       if (typeof prompt === 'string') setInput(prompt)
     }
     window.addEventListener('copilot:focus', onFocus)
     return () => window.removeEventListener('copilot:focus', onFocus)
-  }, [])
+  }, [setPanelVisiblePersisted])
 
   useEffect(() => {
     if (expanded) {
@@ -859,6 +880,20 @@ export function CopilotPanel() {
     },
   ]
 
+  if (!panelVisible) {
+    return (
+      <button
+        type="button"
+        className={`mentor-launcher ${tutor.theme}`}
+        onClick={() => setPanelVisiblePersisted(true)}
+        aria-label={ui.reopenMentor.replace('{name}', tutor.name)}
+        title={ui.reopenMentor.replace('{name}', tutor.name)}
+      >
+        <span className="mentor-launcher-avatar"><img src={tutor.avatar} alt="" /></span>
+        <span className="mentor-launcher-name">{tutor.name} · {ui.copilotBar}</span>
+      </button>
+    )
+  }
   return (
     <div className={`copilot-panel ${tutor.theme} ${open ? 'copilot-open' : 'copilot-closed'} ${expanded ? 'copilot-expanded' : ''} ${historyOpen ? 'history-open' : ''}`}>
       <div className="copilot-bar">
@@ -871,6 +906,15 @@ export function CopilotPanel() {
             </span>
           )}
           <IconChevron size={16} className={`copilot-chev ${open ? 'open' : ''}`} />
+        </button>
+        <button
+          type="button"
+          className="copilot-hide"
+          onClick={() => setPanelVisiblePersisted(false)}
+          aria-label={ui.hideMentor}
+          title={ui.hideMentor}
+        >
+          <IconEyeOff size={16} />
         </button>
         <button
           type="button"
@@ -1164,8 +1208,16 @@ export function CopilotPanel() {
                     <section className="welcome">
                       <div className="welcome-symbol"><span className="symbol-core"><IconSparkles size={20} /></span></div>
                       <h2>{ui.welcomeTitle}</h2>
-                      <p>{ui.welcomeBody}</p>
-                      <SuggestionGrid ui={ui} onPick={(prompt) => void send(undefined, prompt)} />
+<p>{ui.welcomeBody}</p>
+                       <div className="ctx-prompts">
+                         <span className="ctx-prompts-label">{ui.contextualPromptsTitle}</span>
+                         <div className="ctx-prompts-list">
+                           {contextualPromptsFor(lang, copilot.page, { skillId: copilot.skillId, competency: copilot.competency, jobTitle: copilot.jobTitle, topicName }).map((c) => (
+                             <button key={c.prompt} type="button" className="ctx-chip" onClick={() => void send(undefined, c.prompt)}>{c.label}</button>
+                           ))}
+                         </div>
+                       </div>
+                       <SuggestionGrid ui={ui} onPick={(prompt) => void send(undefined, prompt)} />
                       <div className="welcome-greet">
                         <span className="wg-avatar"><img src={tutor.avatar} alt={tutor.name} /></span>
                         <span className="wg-copy">{greetingText}</span>

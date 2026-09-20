@@ -4,7 +4,7 @@
 // SkillBridge app stays English. The backend owns the final language decision;
 // this module only decides what the Copilot chrome, quick actions and browser
 // speech should present for a given (validated) language.
-import type { TutorLanguage, TutorMode } from './types'
+import type { TutorLanguage, TutorMode, CopilotPage } from './types'
 import type { TutorId, TutorProfile } from './tutorProfiles'
 
 export const TUTOR_LANGUAGES: TutorLanguage[] = ['auto', 'en', 'ar']
@@ -114,6 +114,9 @@ function uiText(lang: 'en' | 'ar') {
       `${open ? 'إخفاء' : 'إظهار'} ملف ${name}`,
     ),
     copilotBar: s('AI Career Copilot', 'المُعلّم الرقمي'),
+    hideMentor: s('Hide mentor panel', 'أخفِ لوحة المُعلّم'),
+    reopenMentor: s('Open {name}', 'افتح {name}'),
+    contextualPromptsTitle: s('Based on this page', 'حسب الصفحة اللي واقف عليها'),
     langAria: s('Tutor language', 'لغة المعلم'),
     newChat: s('+ New Chat', 'محادثة جديدة +'),
     newChatConfirm: s(
@@ -234,6 +237,46 @@ function uiText(lang: 'en' | 'ar') {
       vex: s('Interview challenger', 'منافس مقابلات'),
     } as Record<TutorId, string>,
   }
+}
+
+/** Localized per-page contextual prompts (never auto-sent). */
+export function contextualPromptsFor(
+  lang: 'en' | 'ar',
+  page: CopilotPage,
+  context: { skillId?: number | null; competency?: string | null; jobTitle?: string | null; topicName?: string | null },
+): { label: string; prompt: string }[] {
+  const ar = lang === 'ar'
+  const t = (enLabel: string, arLabel: string) => ({ label: ar ? arLabel : enLabel })
+  const prompts = (en: string, arPrompt: string) => ({ prompt: ar ? arPrompt : en })
+  const topic = context.topicName || context.competency || (context.skillId != null ? `skill ${context.skillId}` : 'this topic')
+  const job = context.jobTitle || 'my target role'
+  const byPage: Record<CopilotPage, { label: string; prompt: string }[]> = {
+    dashboard: [
+      { ...t('Plan today', 'خطة النهارده'), ...prompts(`Give me today's single step to move closer to my target role.`, `اديني خطوة واحدة النهارده أقرب لوظيفتي المستهدفة.`) },
+    ],
+    skills_roles: [
+      { ...t('Match my skills', 'طابق مهاراتي'), ...prompts(`Which skills should I improve next to match my target role?`, `إيه المهارات اللي أطوّرها بعد كده عشان أطابق وظيفتي المستهدفة؟`) },
+    ],
+    learning: [
+      { ...t('Explain this lesson', 'اشرح الدرس ده'), ...prompts(`Explain ${topic} simply and tie it to my target role.`, `اشرح ${topic} ببساطة واربطه بوظيفتي المستهدفة.`) },
+    ],
+    assessment: [
+      { ...t('Score me', 'قيّملي'), ...prompts(`What does a strong answer to an assessment on ${topic} look like?`, `شكل إيه الإجابة القوية في تقييم ${topic}؟`) },
+    ],
+    scenarios: [
+      { ...t('Rehearse a scenario', 'تمرّن على سيناريو'), ...prompts(`Run a workplace scenario on ${topic} with me.`, `نفّذ معايا سيناريو شغل على ${topic}.`) },
+    ],
+    jobs: [
+      { ...t('Tailor my pitch', 'جهّزني للوظيفة'), ...prompts(`Help me prepare for a ${job} interview.`, `ساعدني أجهّز إجابات لمقابلة ${job}.`) },
+    ],
+    career_roadmap: [
+      { ...t('My next step', 'خطوتي الجاية'), ...prompts(`Walk me through the next step on my career roadmap.`, `اشرحلي الخطوة الجاية في خطة مسيرتي.`) },
+    ],
+    mock_interview: [
+      { ...t('Run a mock interview', 'اعمل معايا مقابلة تجريبية'), ...prompts(`Start a mock interview for my target role.`, `ابدأ مقابلة تجريبية لوظيفتي المستهدفة.`) },
+    ],
+  }
+  return byPage[page] || []
 }
 
 /** Localized quick-action prompts (22). */

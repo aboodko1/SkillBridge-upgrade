@@ -3258,6 +3258,119 @@ textarea.free-text:focus { outline: 2px solid var(--sb-indigo); outline-offset: 
   cursor: pointer;
 }
 .copilot-expand:hover { color: var(--tutor-color); border-color: var(--tutor-color); background: color-mix(in srgb, var(--tutor-color) 8%, transparent); }
+
+/* ---- Phase 5: hide/reopen mentor (persistent compact launcher) ---- */
+.copilot-hide {
+  appearance: none;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  color: var(--slate-400);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.copilot-hide:hover { color: var(--tutor-color); border-color: var(--tutor-color); background: color-mix(in srgb, var(--tutor-color) 8%, transparent); }
+
+.mentor-launcher {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 95;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px 8px 8px;
+  font: inherit;
+  color: var(--sb-midnight);
+  background: var(--white);
+  border: 1px solid var(--sb-border);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+}
+.mentor-launcher:hover { border-color: var(--tutor-color); box-shadow: var(--shadow-lg), var(--mentor-accent-glow); }
+.mentor-launcher.purple { --tutor-color: var(--sb-violet); }
+.mentor-launcher.blue { --tutor-color: var(--sb-blue); }
+.mentor-launcher.gold { --tutor-color: var(--sb-gold); }
+.mentor-launcher.green { --tutor-color: var(--green); }
+.mentor-launcher-avatar { width: 30px; height: 30px; border-radius: 50%; overflow: hidden; border: 2px solid var(--tutor-color); flex-shrink: 0; display: inline-flex; }
+.mentor-launcher-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mentor-launcher-name { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Phase 5: per-page contextual prompts in the welcome state ---- */
+.copilot-v2 .ctx-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+.copilot-v2 .ctx-prompts-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.copilot-v2 .ctx-prompts-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.copilot-v2 .ctx-chip {
+  appearance: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--navy);
+  background: var(--slate-50);
+  border: 1px solid var(--sb-border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.copilot-v2 .ctx-chip:hover {
+  color: var(--tutor-color);
+  border-color: var(--tutor-color);
+  background: color-mix(in srgb, var(--tutor-color) 8%, transparent);
+}
+
+/* ---- Phase 5: mobile bottom-sheet (open panel aligns to the bottom edge) ---- */
+@media (max-width: 720px) {
+  .copilot-panel.copilot-open:not(.copilot-expanded) {
+    right: 12px;
+    bottom: 0;
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 96px);
+    border-bottom: none;
+    border-radius: var(--radius) var(--radius) 0 0;
+    box-shadow: var(--shadow-lg);
+  }
+  .copilot-panel.copilot-open:not(.copilot-expanded) .copilot-bar {
+    position: relative;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .copilot-panel.copilot-open:not(.copilot-expanded) .copilot-bar::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--slate-300);
+  }
+  .mentor-launcher { right: 12px; bottom: 20px; }
+}
 .copilot-avatar {
   width: 36px;
   height: 36px;

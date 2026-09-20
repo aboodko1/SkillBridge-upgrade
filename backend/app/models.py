@@ -1855,6 +1855,50 @@ def set_student_tour_state(student_id, tour_version=None, welcome_state=None,
     return get_student_tour_state(student_id)
 
 
+MENTOR_UI_DEFAULT_VISIBLE = True
+
+
+def get_mentor_ui_preference(student_id):
+    """The student's server-side mentor-panel visibility preference.
+
+    Phase 5 backend requirement: the chosen show/hide state must persist per
+    authenticated student on the server (the Copilot panel is localStorage-free
+    by contract), so the compact launcher state survives a refresh. A
+    never-written student reads back ``panel_visible: True`` so the mentor
+    simply stays visible exactly as before this phase.
+    """
+    with get_cursor() as c:
+        row = c.execute(
+            "SELECT student_id, panel_visible, updated_at "
+            "FROM mentor_ui_preferences WHERE student_id=?",
+            (student_id,)).fetchone()
+    if not row:
+        return {"student_id": student_id, "panel_visible": MENTOR_UI_DEFAULT_VISIBLE,
+                "updated_at": None, "default": True}
+    d = dict(row)
+    d["panel_visible"] = bool(d["panel_visible"])
+    d["default"] = False
+    return d
+
+
+def set_mentor_ui_preference(student_id, panel_visible):
+    """Upsert the mentor-panel visibility flag (backend is the truth).
+
+    ``panel_visible`` must already be a bool by the caller. Returns the fresh
+    full preference row.
+    """
+    with get_cursor() as c:
+        c.execute(
+            """INSERT INTO mentor_ui_preferences
+               (student_id, panel_visible, updated_at)
+               VALUES (?,?, datetime('now'))
+               ON CONFLICT(student_id) DO UPDATE SET
+                 panel_visible=excluded.panel_visible,
+                 updated_at=excluded.updated_at""",
+            (student_id, 1 if panel_visible else 0))
+    return get_mentor_ui_preference(student_id)
+
+
 def mark_copilot_manual(student_id):
     """Source bookkeeping when the student builds a copilot via the settings
     picker (PUT copilot) rather than the first-run quiz.

@@ -1112,6 +1112,30 @@ def _migration_0015_student_tour_state(conn):
     """)
 
 
+def _migration_0016_mentor_ui_preferences(conn):
+    """Phase 5 - per-student mentor UI visibility preference.
+
+    The mentor (Copilot) can be hidden behind a compact launcher. Phase 5
+    backend requirement: the chosen state must persist server-side per
+    authenticated student, so the panel (which is localStorage-free by
+    contract) reads/writes this row instead of a browser cache.
+
+    - ``panel_visible`` — 1 = floating mentor panel shown, 0 = hidden behind
+      the compact launcher. Defaults to visible so a never-written student's
+      experience is unchanged.
+
+    Single row per student; never-written students read back the synthetic
+    ``panel_visible: true`` default via the model helper.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mentor_ui_preferences (
+            student_id INTEGER PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+            panel_visible INTEGER NOT NULL DEFAULT 1 CHECK(panel_visible IN (0,1)),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+
 MIGRATIONS = [
     {"id": "0001_baseline_implied_schema", "apply": _migration_0001_baseline},
     {"id": "0002_auth_sessions", "apply": _migration_0002_auth_sessions},
@@ -1128,6 +1152,7 @@ MIGRATIONS = [
     {"id": "0013_tutor_conversations", "apply": _migration_0013_tutor_conversations},
     {"id": "0014_conversation_live_meta", "apply": _migration_0014_conversation_live_meta},
     {"id": "0015_student_tour_state", "apply": _migration_0015_student_tour_state},
+    {"id": "0016_mentor_ui_preferences", "apply": _migration_0016_mentor_ui_preferences},
 ]
 
 

@@ -1837,6 +1837,42 @@ def api_student_tour_state_update(student_id: int, request: Request, body: dict)
                                          dont_show_again=dsa, mini_states=mini)
 
 
+@app.get("/api/students/{student_id}/mentor/ui")
+def api_student_mentor_ui(student_id: int, request: Request):
+    """Server-side mentor-panel visibility preference (Phase 5).
+
+    Tells the SPA whether the student hid the floating mentor panel behind the
+    compact launcher. The panel is localStorage-free by contract, so this row
+    is the source of truth that makes the chosen state survive a refresh. A
+    never-written student reads back ``panel_visible: true`` (unchanged UX).
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    return models.get_mentor_ui_preference(student_id)
+
+
+@app.put("/api/students/{student_id}/mentor/ui")
+def api_student_mentor_ui_update(student_id: int, request: Request, body: dict):
+    """Persist the mentor-panel visibility choice (backend is the truth).
+
+    Accepts ``panel_visible`` (bool) only; unknown fields are ignored and a
+    non-boolean value is rejected so the client can never smuggle a bogus
+    state. Returns the fresh full preference.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object")
+    pv = body.get("panel_visible")
+    if pv is None:
+        raise HTTPException(status_code=400, detail="panel_visible is required")
+    if not isinstance(pv, bool):
+        raise HTTPException(status_code=400, detail="panel_visible must be a boolean")
+    return models.set_mentor_ui_preference(student_id, pv)
+
+
 @app.post("/api/students/{student_id}/assessments/session")
 def api_start_assessment_session(student_id: int, request: Request, body: dict):
     """Mark a verified final assessment as in progress so the Tutor is locked.

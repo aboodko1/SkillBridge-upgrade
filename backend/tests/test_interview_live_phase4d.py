@@ -133,7 +133,7 @@ def test_migration_0014_adds_live_meta_columns(tmp_path):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(tutor_conversations)")}
         assert {"mode", "language"} <= cols
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == "0015_student_tour_state"
+        assert applied[-1] == "0016_mentor_ui_preferences"
         assert database.run_migrations() == []
     finally:
         database.set_db_for_test()
@@ -147,13 +147,13 @@ def test_migration_0015_upgrades_existing_db(tmp_path):
     conn = _file_db(tmp_path, "live-old.db")
     database.set_db_for_test(conn)
     try:
-        pre = [m for m in database.MIGRATIONS if m["id"] != "0015_student_tour_state"]
+        pre = [m for m in database.MIGRATIONS if m["id"] != "0016_mentor_ui_preferences"]
         database.run_migrations(conn=conn, migrations=pre)
         conn.execute("INSERT INTO students (email, name) VALUES ('live@student.edu', 'Live')")
         sid = conn.execute("SELECT id FROM students WHERE email='live@student.edu'").fetchone()["id"]
         conn.commit()
         pending = database.run_migrations()
-        assert pending == ["0015_student_tour_state"]
+        assert pending == ["0016_mentor_ui_preferences"]
         cols = {r["name"] for r in conn.execute(
             "PRAGMA table_info(student_tour_state)").fetchall()}
         assert {"student_id", "tour_version", "welcome_state",
