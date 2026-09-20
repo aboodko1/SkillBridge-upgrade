@@ -65,20 +65,17 @@ flowchart LR
 
 ## Product tour
 
-From the running app as all three roles — Student, Company, and University Admin.
+The gallery now follows one consistent **Casual Pulse · Dark** visual system. Every image below
+comes from the running application at a tested desktop or mobile viewport.
 
 | | |
 |---|---|
-| **Sign in** | **Student dashboard** |
-| ![Sign in](docs/screenshots/01-login.png) | ![Student dashboard](docs/screenshots/02-student-dashboard.png) |
-| **Learning activity — streak, XP & badges** | **Skills & Roles — choosing a Target Career** |
-| ![Learning activity](docs/screenshots/03-student-activity.png) | ![Skills & Roles](docs/screenshots/04-skills-and-roles-student.png) |
-| **Company — defining a Role** | **Learning path — explanation + roadmap sources** |
-| ![Company roles](docs/screenshots/05-company-roles.png) | ![Learning path](docs/screenshots/06-learning.png) |
-| **AI Tutor chat** | **Assessment — pass moves a skill to Verified** |
-| ![AI Tutor](docs/screenshots/07-ai-tutor.png) | ![Assessment pass](docs/screenshots/08-assessment-pass.png) |
-| **Assessment — integrity flags raised** | **University dashboard — anonymized stats** |
-| ![Integrity flags](docs/screenshots/09-assessment-flag.png) | ![University dashboard](docs/screenshots/10-university-dashboard.png) |
+| **Discover a target role** | **Build a personalized learning path** |
+| ![Dark Pulse role discovery](docs/screenshots/01-dark-pulse-role-discovery.png) | ![Dark Pulse learning workspace](docs/screenshots/02-dark-pulse-learning.png) |
+| **Practise role-specific decisions** | **Turn claims into verified evidence** |
+| ![Dark Pulse practice scenarios](docs/screenshots/03-dark-pulse-practice.png) | ![Dark Pulse assessments](docs/screenshots/04-dark-pulse-assessments.png) |
+| **Match company roles with candidates** | **Stay focused on mobile** |
+| ![Dark Pulse company matching dashboard](docs/screenshots/05-dark-pulse-company.png) | <p align="center"><img src="docs/screenshots/06-dark-pulse-mobile.png" width="280" alt="Dark Pulse mobile dashboard" /></p> |
 
 ## Stack
 
