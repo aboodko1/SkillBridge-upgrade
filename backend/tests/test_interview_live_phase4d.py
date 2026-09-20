@@ -133,29 +133,34 @@ def test_migration_0014_adds_live_meta_columns(tmp_path):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(tutor_conversations)")}
         assert {"mode", "language"} <= cols
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == "0014_conversation_live_meta"
+        assert applied[-1] == "0015_student_tour_state"
         assert database.run_migrations() == []
     finally:
         database.set_db_for_test()
         conn.close()
 
 
-def test_migration_0014_upgrades_existing_conversations(tmp_path):
+def test_migration_0015_upgrades_existing_db(tmp_path):
+    """Phase 4 tour-state migration: an existing DB (everything pre-0015)
+    gains the per-student tour table when 0015 runs, and reads back synthetic
+    not_seen defaults before any row is written."""
     conn = _file_db(tmp_path, "live-old.db")
     database.set_db_for_test(conn)
     try:
-        pre = [m for m in database.MIGRATIONS if m["id"] != "0014_conversation_live_meta"]
+        pre = [m for m in database.MIGRATIONS if m["id"] != "0015_student_tour_state"]
         database.run_migrations(conn=conn, migrations=pre)
         conn.execute("INSERT INTO students (email, name) VALUES ('live@student.edu', 'Live')")
         sid = conn.execute("SELECT id FROM students WHERE email='live@student.edu'").fetchone()["id"]
-        conn.execute("INSERT INTO tutor_conversations (student_id, tutor_id, title) "
-                     "VALUES (?, 'nova', 'Old thread')", (sid,))
         conn.commit()
         pending = database.run_migrations()
-        assert pending == ["0014_conversation_live_meta"]
-        row = conn.execute("SELECT mode, language FROM tutor_conversations WHERE student_id=?",
-                           (sid,)).fetchone()
-        assert row["mode"] == "chat" and row["language"] is None
+        assert pending == ["0015_student_tour_state"]
+        cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(student_tour_state)").fetchall()}
+        assert {"student_id", "tour_version", "welcome_state",
+                "dont_show_again", "mini_states_json"} <= cols
+        row = conn.execute("SELECT welcome_state, mini_states_json FROM student_tour_state "
+                           "WHERE student_id=?", (sid,)).fetchone()
+        assert row is None  # synthetic not_seen, nothing persisted yet
         assert database.run_migrations() == []
     finally:
         database.set_db_for_test()

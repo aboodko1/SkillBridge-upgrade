@@ -30,6 +30,7 @@ import {
   WhyThis,
   type LearningTab,
 } from '../components/learning'
+import { MiniTourBanner } from '../components/ProductTour'
 import { IconAlert, IconArrowRight, IconAssessment, IconBack, IconBolt, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconExternal, IconLock, IconRoadmap, IconShield, IconTarget } from '../components/Icons'
 
 function SafeMarkdown({ children }: { children: React.ReactNode }) {
@@ -666,6 +667,16 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
 
   return (
     <div className="learning-page">
+      <MiniTourBanner
+        page="learning"
+        eyebrow="Learning · First time here?"
+        title="Your plan at a glance"
+        points={[
+          'A diagnostic reveals your skill gaps, then builds a step-by-step plan.',
+          'Milestones show exactly where you are — to-do, in progress, needs review, done.',
+          'Follow the highlighted topic next and tick off the current step.',
+        ]}
+      />
       {backTo && (
         <nav className="crumbs" aria-label="Breadcrumbs">
           <button type="button" className="crumb-back" onClick={() => onNavigate?.(backTo.key)}>

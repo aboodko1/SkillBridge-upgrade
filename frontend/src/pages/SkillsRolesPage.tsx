@@ -6,6 +6,7 @@ import type { RoleRecord, Student, Skill, RolesResponse, EscoOccupation, Analysi
 import { IconPlus, IconEdit, IconTrash, IconUpload, IconSearch, IconCheck, IconAlert, IconTarget, IconBookmark, IconCompare, IconBack, IconShield, IconBolt, IconArrowRight } from '../components/Icons'
 import { SkillTag, GapPill } from '../components/widgets'
 import { IconRoles } from '../components/Icons'
+import { MiniTourBanner } from '../components/ProductTour'
 import { ConfirmModal, ToastRegion, useToast } from '../components/ui'
 import MatchBreakdown from '../components/MatchBreakdown'
 import { humanizeTopicLabel } from '../lib/topicLabels'
@@ -1738,6 +1739,16 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
 
   return (
     <div className="skills-page sro3-page">
+      <MiniTourBanner
+        page="roles"
+        eyebrow="Skills & Roles · First time here?"
+        title="Pick a destination, then build from it"
+        points={[
+          'Your target role sets the destination that your learning plan builds toward.',
+          'Coverage shows how your current skills already meet the role’s requirements.',
+          'Browse the catalog to compare other roles before you commit.',
+        ]}
+      />
       {backTo && (
         <nav className="crumbs" aria-label="Breadcrumbs">
           <button type="button" className="crumb-back" onClick={() => onNavigate?.(backTo.key)}>

@@ -12,6 +12,7 @@ import type {
   RecentRole, RecentRolesResponse,
   RoleProvenance, JobsHealthPayload, JobLinkReport,
   CopilotConfigResponse, CopilotOnboardingStateResponse, CopilotOnboardingSubmit, CopilotOnboardingResponse,
+  StudentTourState, TourStateUpdate,
 } from './types'
 import type { AssessmentIntegrityEvent } from './webcamIntegrity'
 
@@ -261,6 +262,10 @@ export const api = {
     req<CopilotOnboardingStateResponse>(`/api/students/${studentId}/copilot/onboarding-state`),
   submitCopilotOnboarding: (studentId: number, body: CopilotOnboardingSubmit) =>
     req<CopilotOnboardingResponse>(`/api/students/${studentId}/copilot/onboarding`, { method: 'POST', body: JSON.stringify(body) }),
+  tourState: (studentId: number) =>
+    req<StudentTourState>(`/api/students/${studentId}/tour/state`),
+  setTourState: (studentId: number, body: TourStateUpdate) =>
+    req<StudentTourState>(`/api/students/${studentId}/tour/state`, { method: 'PUT', body: JSON.stringify(body) }),
   startAssessmentSession: (studentId: number, skillId: number, externalToken?: string | null, webcamGate?: { passed: boolean; checked_at: string; meta?: Record<string, string | number | boolean> }) =>
     req<{ active: boolean; skill_id: number; webcam_gate?: { required: boolean; passed: boolean } }>(`/api/students/${studentId}/assessments/session`, { method: 'POST', body: JSON.stringify({ skill_id: skillId, external_token: externalToken || undefined, webcam_gate: webcamGate }) }),
   endAssessmentSession: (studentId: number) =>

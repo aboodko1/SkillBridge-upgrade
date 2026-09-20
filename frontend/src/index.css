@@ -5707,6 +5707,77 @@ button.user-chip { font-family: inherit; cursor: pointer; }
 }
 
 /* ===================================================================== */
+/* Phase 4 â€” Welcome tour + contextual mini-tours.                        */
+/* ===================================================================== */
+.tour-backdrop {
+  position: fixed; inset: 0; z-index: 400; display: grid; place-items: center;
+  padding: 20px; background: rgba(13, 27, 42, .5); overflow-y: auto;
+}
+.tour-card {
+  width: 100%; max-width: 460px; background: #fff; border: 1px solid var(--slate-200, #E2E8F0);
+  border-radius: 16px; box-shadow: 0 24px 65px rgba(13, 27, 42, .34); padding: 26px 30px 24px;
+  outline: none;
+}
+.tour-card:focus-visible { outline: 2px solid var(--sb-midnight, #0D1B2A); outline-offset: 2px; }
+.tour-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tour-eyebrow { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--sb-indigo, #FF6B2C); }
+.tour-close {
+  width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px;
+  background: transparent; color: var(--slate-400, #94A3B8); cursor: pointer;
+}
+.tour-close:hover { background: var(--slate-100, #F1F5F9); color: var(--slate-600, #475569); }
+.tour-close:focus-visible { outline: 2px solid var(--sb-indigo, #FF6B2C); outline-offset: 1px; }
+.tour-icon {
+  display: grid; place-items: center; width: 48px; height: 48px; margin: 14px 0 4px;
+  border-radius: 14px; background: var(--sb-indigo-soft, #FFF0E8); color: var(--sb-indigo, #FF6B2C);
+}
+.tour-card h2 { margin: 4px 0 8px; font-size: 20px; line-height: 1.25; color: var(--sb-midnight, #0D1B2A); }
+.tour-body { margin: 0 0 14px; font-size: 14.5px; line-height: 1.6; color: var(--slate-600, #475569); }
+.tour-dots { display: flex; gap: 6px; margin: 0 0 18px; }
+.tour-dot { width: 7px; height: 7px; border-radius: 100px; background: var(--slate-200, #E2E8F0); transition: width .2s ease; }
+.tour-dot.on { width: 22px; background: var(--sb-indigo, #FF6B2C); }
+.tour-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.tour-actions-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.tour-actions-right { display: flex; align-items: center; gap: 10px; }
+.tour-skip { color: var(--slate-500, #64748B); }
+.tour-dont {
+  border: 0; background: none; padding: 0; font-size: 12.5px; color: var(--slate-400, #94A3B8);
+  text-decoration: underline; cursor: pointer;
+}
+.tour-dont:hover { color: var(--slate-600, #475569); }
+.tour-dont:focus-visible { outline: 2px solid var(--sb-indigo, #FF6B2C); outline-offset: 2px; border-radius: 4px; }
+
+.mini-tour {
+  margin: 0 0 18px; padding: 14px 18px; border: 1px dashed var(--slate-300, #CBD5E1);
+  border-radius: 12px; background: var(--sb-panel, #FFFFFF); box-shadow: 0 6px 22px rgba(13, 27, 42, .05);
+}
+.mini-tour-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mini-tour-head strong { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--sb-midnight, #0D1B2A); }
+.mini-tour-head strong svg { color: var(--sb-indigo, #FF6B2C); }
+.mini-tour-close {
+  width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 8px;
+  background: transparent; color: var(--slate-400, #94A3B8); cursor: pointer;
+}
+.mini-tour-close:hover { background: var(--slate-100, #F1F5F9); color: var(--slate-600, #475569); }
+.mini-tour-close:focus-visible { outline: 2px solid var(--sb-indigo, #FF6B2C); outline-offset: 1px; }
+.mini-tour-eyebrow { margin: 6px 0 0; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: var(--sb-indigo, #FF6B2C); }
+.mini-tour-points { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.mini-tour-points li { position: relative; padding-left: 16px; font-size: 13.5px; line-height: 1.55; color: var(--slate-600, #475569); }
+.mini-tour-points li::before { content: ""; position: absolute; left: 2px; top: 8px; width: 6px; height: 6px; border-radius: 100px; background: var(--sb-indigo, #FF6B2C); }
+[dir="rtl"] .mini-tour-points li { padding-left: 0; padding-right: 16px; }
+[dir="rtl"] .mini-tour-points li::before { left: auto; right: 2px; }
+.tour-dot, .tour-icon, .mini-tour { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-dot { transition: none; }
+  .tour-card { transition: none; }
+}
+@media (max-width: 520px) {
+  .tour-card { padding: 22px 18px 20px; }
+  .tour-actions { flex-direction: column; align-items: stretch; }
+  .tour-actions-left, .tour-actions-right { justify-content: space-between; }
+}
+
+/* ===================================================================== */
 /* Mentor Experience â€” Phase 1: recommendation result, "Choose my mentor", */
 /* and the unified four-mentor settings picker.                            */
 /* ===================================================================== */
@@ -8074,6 +8145,7 @@ button.user-chip { font-family: inherit; cursor: pointer; }
 /* Container shells + tracked inputs that hard-coded #fff backgrounds */
 [data-theme="dark"] .cob-shell,
 [data-theme="dark"] .csm-shell,
+[data-theme="dark"] .tour-card,
 [data-theme="dark"] .tracked-stage select,
 [data-theme="dark"] .tracked-date input,
 [data-theme="dark"] .jobn-filterbar input,
@@ -8082,6 +8154,17 @@ button.user-chip { font-family: inherit; cursor: pointer; }
   color: var(--slate-900);
   border-color: var(--slate-300);
 }
+[data-theme="dark"] .tour-body,
+[data-theme="dark"] .mini-tour-points li { color: var(--slate-600); }
+[data-theme="dark"] .mini-tour { background: var(--sb-panel); border-color: var(--slate-300); }
+[data-theme="dark"] .mini-tour-head strong { color: var(--slate-900); }
+[data-theme="dark"] .mini-tour-close,
+[data-theme="dark"] .tour-close { color: var(--slate-400); }
+[data-theme="dark"] .mini-tour-close:hover,
+[data-theme="dark"] .tour-close:hover { background: var(--slate-100); color: var(--slate-600); }
+[data-theme="dark"] .tour-dont { color: var(--slate-400); }
+[data-theme="dark"] .tour-card h2 { color: var(--slate-900); }
+[data-theme="dark"] .tour-icon { background: var(--sb-indigo-soft); }
 [data-theme="dark"] .lesson-version-note { background: var(--sb-panel); }
 
 /* Full-screen verified ("vv-*") and preview overlays follow the canvas */

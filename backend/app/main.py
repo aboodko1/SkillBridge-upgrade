@@ -1784,6 +1784,59 @@ def api_copilot_onboarding(student_id: int, request: Request, body: dict):
     }
 
 
+@app.get("/api/students/{student_id}/tour/state")
+def api_student_tour_state(student_id: int, request: Request):
+    """Server-side source of truth for the product tour (Phase 4).
+
+    Tells the SPA whether the global welcome tour should auto-show (a
+    never-written student reads ``not_seen`` → the tour runs once for a new
+    account), where each contextual mini-tour stands, and whether the user
+    chose "Don't show again". Replay is a client-side transition to
+    ``active``; auto-show never fires unless the state is ``not_seen``.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    return models.get_student_tour_state(student_id)
+
+
+@app.put("/api/students/{student_id}/tour/state")
+def api_student_tour_state_update(student_id: int, request: Request, body: dict):
+    """Persist tour transitions (backend is the source of truth).
+
+    Accepts a partial body: ``welcome_state`` (not_seen|active|completed|
+    skipped), ``dont_show_again`` (bool), and/or ``mini_states`` (dict of
+    {page: state} where page ∈ roles|learning|assessments and state ∈
+    not_seen|completed). Validation is strict so a client can never smuggle a
+    bogus page or state; unknown fields are ignored. Returns the fresh full
+    state.
+    """
+    user = _current_user(request)
+    _require_roles(user, "Student")
+    _own_student(user, student_id)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object")
+    ws = body.get("welcome_state")
+    if ws is not None and ws not in models.TOUR_WELCOME_STATES:
+        raise HTTPException(
+            status_code=400,
+            detail="welcome_state must be one of: not_seen, active, completed, skipped")
+    dsa = body.get("dont_show_again")
+    if dsa is not None and not isinstance(dsa, bool):
+        raise HTTPException(status_code=400, detail="dont_show_again must be a boolean")
+    mini = body.get("mini_states")
+    if mini is not None:
+        if not isinstance(mini, dict):
+            raise HTTPException(status_code=400, detail="mini_states must be a JSON object")
+        for page, st in mini.items():
+            if page not in models.TOUR_PAGES or st not in models.TOUR_MINI_STATES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"invalid mini-tour page/state: {page} -> {st}")
+    return models.set_student_tour_state(student_id, welcome_state=ws,
+                                         dont_show_again=dsa, mini_states=mini)
+
+
 @app.post("/api/students/{student_id}/assessments/session")
 def api_start_assessment_session(student_id: int, request: Request, body: dict):
     """Mark a verified final assessment as in progress so the Tutor is locked.

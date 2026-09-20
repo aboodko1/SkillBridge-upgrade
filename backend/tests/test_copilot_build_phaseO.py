@@ -49,7 +49,7 @@ def test_migration_0009_on_fresh_db(tmp_path):
     try:
         database.init_db()
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == "0014_conversation_live_meta"
+        assert applied[-1] == "0015_student_tour_state"
         tables = {r["name"] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert "copilot_config" in tables
@@ -118,7 +118,7 @@ def test_migration_0009_backs_out_on_failure(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert "oops" not in tables and "copilot_config" not in tables
         assert "copilot_onboarding" not in tables
-        assert database.run_migrations()[-1] == "0014_conversation_live_meta"
+        assert database.run_migrations()[-1] == "0015_student_tour_state"
     finally:
         database.set_db_for_test()
         conn.close()

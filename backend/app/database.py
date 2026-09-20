@@ -1080,6 +1080,38 @@ def _migration_0014_conversation_live_meta(conn):
         )
 
 
+def _migration_0015_student_tour_state(conn):
+    """Phase 4 - per-student product tour state.
+
+    Persists each user's tour state server-side, scoped to the authenticated
+    student (Phase 4 backend requirement — never localStorage-only):
+
+    - ``tour_version`` — a major versioned tour id; on a future major version
+      bump with a clear reason, not_seen can legitimately re-arm the tour.
+    - ``welcome_state`` — the global welcome tour lifecycle
+      (not_seen / active / completed / skipped). Auto-show only fires on
+      not_seen (brand-new account sees the tour exactly once).
+    - ``dont_show_again`` — the explicit "Don't show again" toggle, distinct
+      from a one-off skip so both required controls are honored.
+    - ``mini_states_json`` — contextual per-page mini-tour completion map
+      ({roles|learning|assessments} -> not_seen|completed).
+
+    Single row per student; never-written students read back synthetic
+    not_seen defaults via the model helper.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS student_tour_state (
+            student_id INTEGER PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+            tour_version TEXT NOT NULL DEFAULT 'v1',
+            welcome_state TEXT NOT NULL DEFAULT 'not_seen'
+                CHECK(welcome_state IN ('not_seen','active','completed','skipped')),
+            dont_show_again INTEGER NOT NULL DEFAULT 0,
+            mini_states_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+
 MIGRATIONS = [
     {"id": "0001_baseline_implied_schema", "apply": _migration_0001_baseline},
     {"id": "0002_auth_sessions", "apply": _migration_0002_auth_sessions},
@@ -1095,6 +1127,7 @@ MIGRATIONS = [
     {"id": "0012_tutor_memory", "apply": _migration_0012_tutor_memory},
     {"id": "0013_tutor_conversations", "apply": _migration_0013_tutor_conversations},
     {"id": "0014_conversation_live_meta", "apply": _migration_0014_conversation_live_meta},
+    {"id": "0015_student_tour_state", "apply": _migration_0015_student_tour_state},
 ]
 
 

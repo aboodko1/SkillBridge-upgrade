@@ -9,13 +9,14 @@ import AssessmentsPage from './pages/AssessmentsPage'
 import UniversityPage from './pages/UniversityPage'
 import PublicProfilePage from './pages/PublicProfilePage'
 import { api } from './lib/api'
-import { IconDashboard, IconRoles, IconLearning, IconAssessment, IconUniversity, IconLogout, IconAlert, IconTarget, IconBell, IconChevron, IconBolt, IconSparkles, IconMenu, IconXClose, IconSun, IconMoon, IconSearch } from './components/Icons'
+import { IconDashboard, IconRoles, IconLearning, IconAssessment, IconUniversity, IconLogout, IconAlert, IconTarget, IconBell, IconChevron, IconBolt, IconSparkles, IconMenu, IconXClose, IconSun, IconMoon, IconSearch, IconRoadmap } from './components/Icons'
 import { useThemePref } from './hooks/useThemePref'
 import SuccessAnimationOverlay from './components/SuccessAnimationOverlay'
 import ErrorBoundary from './components/ErrorBoundary'
 import { CopilotPanel } from './components/CopilotPanel'
 import CopilotOnboarding from './components/CopilotOnboarding'
 import CopilotSettingsModal from './components/CopilotSettingsModal'
+import { TourProvider, useTour } from './components/ProductTour'
 import BrandLogo from './components/BrandLogo'
 import NavigationSearch from './components/NavigationSearch'
 
@@ -79,6 +80,7 @@ function Shell() {
 
   const role = session.role
   const studentId = role === 'Student' ? (session.student?.id ?? 0) : 0
+  const tour = useTour()
   const nav: { key: Section; label: string; icon: React.ReactNode; show: boolean; href?: string }[] = [
     { key: 'dashboard', label: 'Dashboard', icon: <IconDashboard size={18} />, show: true },
     { key: 'skills', label: 'Skills & Roles', icon: <IconRoles size={18} />, show: true },
@@ -250,6 +252,13 @@ function Shell() {
                       onClick={() => { setUserMenuOpen(false); setCopilotSettingsOpen(true); setCopilotOnboardingForce(false) }}
                     ><IconSparkles size={15} /> Change your copilot</button>
                   )}
+                  {role === 'Student' && (
+                    <button
+                      className="btn btn-ghost popover-logout"
+                      role="menuitem"
+                      onClick={() => { setUserMenuOpen(false); tour.replay() }}
+                    ><IconRoadmap size={15} /> Replay product tour</button>
+                  )}
                   <button className="btn btn-ghost popover-logout" role="menuitem" onClick={logout}><IconLogout size={15} /> Log out</button>
                 </div>
               )}
@@ -298,7 +307,9 @@ export default function App() {
   return (
     <AppProvider>
       <ErrorBoundary>
-        <Shell />
+        <TourProvider>
+          <Shell />
+        </TourProvider>
       </ErrorBoundary>
     </AppProvider>
   )

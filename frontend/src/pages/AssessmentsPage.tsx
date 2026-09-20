@@ -21,6 +21,7 @@ import {
   type WebcamDetector,
 } from '../lib/webcamIntegrity'
 import { GapPill } from '../components/widgets'
+import { MiniTourBanner } from '../components/ProductTour'
 import { IconAssessment, IconAlert, IconFlag, IconCheck, IconTrophy, IconClock, IconEye, IconShield, IconUsers, IconBack, IconTarget } from '../components/Icons'
 import { ToastRegion, useToast } from '../components/ui'
 
@@ -277,6 +278,16 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
 
   return (
     <div className="assessment-page">
+      <MiniTourBanner
+        page="assessments"
+        eyebrow="Assessments · First time here?"
+        title="Measure safely, then take the test"
+        points={[
+          'Practice mode is unlimited and never touches your verified levels.',
+          'A passed final attempt is the only thing that verifies a skill.',
+          'Every result on your profile page lists what passed and what to improve.',
+        ]}
+      />
       <nav className="crumbs" aria-label="Breadcrumbs">
         {backTo && (
           <button type="button" className="crumb-back" onClick={() => onNavigate?.(backTo.key)}>

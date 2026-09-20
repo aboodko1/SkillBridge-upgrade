@@ -77,7 +77,7 @@ def test_migration_0004_on_fresh_db(tmp_path):
     try:
         database.init_db()
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == "0014_conversation_live_meta"
+        assert applied[-1] == "0015_student_tour_state"
         role_cols = {r["name"] for r in conn.execute("PRAGMA table_info(roles)")}
         assert {"source_language", "import_imprint"} <= role_cols
         tables = {r["name"] for r in conn.execute(

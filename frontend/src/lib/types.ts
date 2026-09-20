@@ -1275,6 +1275,26 @@ export interface CopilotOnboardingResponse {
   options: CopilotOption[]
 }
 
+export type TourWelcomeState = 'not_seen' | 'active' | 'completed' | 'skipped'
+export type TourMiniState = 'not_seen' | 'completed'
+export type TourMiniPage = 'roles' | 'learning' | 'assessments'
+
+export interface StudentTourState {
+  student_id: number
+  tour_version: string
+  welcome_state: TourWelcomeState
+  dont_show_again: boolean
+  mini_states: Partial<Record<TourMiniPage, TourMiniState>>
+  updated_at: string | null
+  default?: boolean
+}
+
+export interface TourStateUpdate {
+  welcome_state?: TourWelcomeState
+  dont_show_again?: boolean
+  mini_states?: Partial<Record<TourMiniPage, TourMiniState>>
+}
+
 export interface CopilotConfigResponse {
   configured: boolean
   copilot: CopilotConfigRecord | null

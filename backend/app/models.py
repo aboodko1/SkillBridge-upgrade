@@ -1788,6 +1788,73 @@ def set_copilot_onboarding(student_id, state, source, answers=None):
     return get_copilot_onboarding(student_id)
 
 
+TOUR_VERSION = "v1"
+TOUR_PAGES = ("roles", "learning", "assessments")
+TOUR_WELCOME_STATES = ("not_seen", "active", "completed", "skipped")
+TOUR_MINI_STATES = ("not_seen", "completed")
+
+
+def get_student_tour_state(student_id):
+    """The student's server-side product tour state, or a synthetic default.
+
+    This row is the source of truth for the welcome tour and the contextual
+    mini-tours (Phase 4 backend requirement); localStorage is only an optional
+    UI cache. A never-written student reads back ``not_seen`` with empty mini
+    states so a brand-new account sees the welcome tour exactly once.
+    """
+    with get_cursor() as c:
+        row = c.execute(
+            "SELECT student_id, tour_version, welcome_state, dont_show_again, "
+            "mini_states_json, updated_at FROM student_tour_state WHERE student_id=?",
+            (student_id,)).fetchone()
+    if not row:
+        return {"student_id": student_id, "tour_version": TOUR_VERSION,
+                "welcome_state": "not_seen", "dont_show_again": False,
+                "mini_states": {}, "updated_at": None, "default": True}
+    d = dict(row)
+    d["dont_show_again"] = bool(d["dont_show_again"])
+    raw = d.pop("mini_states_json", None)
+    try:
+        mini = json.loads(raw or "{}")
+    except Exception:
+        mini = {}
+    d["mini_states"] = mini if isinstance(mini, dict) else {}
+    d["default"] = False
+    return d
+
+
+def set_student_tour_state(student_id, tour_version=None, welcome_state=None,
+                           dont_show_again=None, mini_states=None):
+    """Upsert part/all of the student's tour state (backend is the truth).
+
+    ``welcome_state`` / page-state values must already be validated by the
+    caller against the allowed vocabularies. ``mini_states`` (if given) is
+    merged over the existing map so a partial page update never wipes other
+    pages. Returns the fresh full state.
+    """
+    with get_cursor() as c:
+        cur = get_student_tour_state(student_id)
+        ver = tour_version if tour_version is not None else cur["tour_version"]
+        ws = welcome_state if welcome_state is not None else cur["welcome_state"]
+        dsa = dont_show_again if dont_show_again is not None else cur["dont_show_again"]
+        mini = dict(cur["mini_states"])
+        if mini_states:
+            mini.update(mini_states)
+        c.execute(
+            """INSERT INTO student_tour_state
+               (student_id, tour_version, welcome_state, dont_show_again,
+                mini_states_json, updated_at)
+               VALUES (?,?,?,?,?, datetime('now'))
+               ON CONFLICT(student_id) DO UPDATE SET
+                 tour_version=excluded.tour_version,
+                 welcome_state=excluded.welcome_state,
+                 dont_show_again=excluded.dont_show_again,
+                 mini_states_json=excluded.mini_states_json,
+                 updated_at=excluded.updated_at""",
+            (student_id, ver, ws, 1 if dsa else 0, json.dumps(mini)))
+    return get_student_tour_state(student_id)
+
+
 def mark_copilot_manual(student_id):
     """Source bookkeeping when the student builds a copilot via the settings
     picker (PUT copilot) rather than the first-run quiz.
