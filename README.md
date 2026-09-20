@@ -1,32 +1,52 @@
+<div align="center">
+  <img src="frontend/public/skillbridge-mark.svg" width="84" alt="SkillBridge logo" />
+
 # SkillBridge
 
-![React](https://img.shields.io/badge/React-TypeScript-149eca)
-![FastAPI](https://img.shields.io/badge/FastAPI-Python-009688)
-![Status](https://img.shields.io/badge/status-educational%20prototype-f97316)
+### Learn with direction. Practise with purpose. Prove what you can do.
 
-SkillBridge is a GenAI-powered career-readiness platform that closes the gap between what
-students learn at university and what companies actually need. It connects students, companies,
-and universities around one loop: a company defines the real skills a role requires, a student's
-actual skill level is measured (not just self-reported), GenAI generates a personalized learning
-path for every gap, the student is re-assessed under integrity monitoring, and their **Verified
-Skill Profile** updates so their match to real roles improves.
+[![React](https://img.shields.io/badge/React-TypeScript-149eca?style=for-the-badge&logo=react&logoColor=white)](#stack)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Python-009688?style=for-the-badge&logo=fastapi&logoColor=white)](#stack)
+[![SQLite](https://img.shields.io/badge/SQLite-Local--first-07405e?style=for-the-badge&logo=sqlite&logoColor=white)](#stack)
+![Status](https://img.shields.io/badge/Status-Educational_prototype-f97316?style=for-the-badge)
 
-This is a focused prototype demonstrating the full loop end to end — extraction, personalized
-generation, and verified re-assessment — not a production platform.
+**A GenAI-powered career-readiness workspace connecting students, employers, and universities through one evidence-based journey.**
+
+</div>
+
+![SkillBridge Dark Pulse student dashboard](docs/screenshots/00-dark-pulse-dashboard.png)
+
+<p align="center">
+  <sub>Casual Pulse · Dark mode — captured from the running SkillBridge application.</sub>
+</p>
+
+## From learning to verified opportunity
+
+SkillBridge closes the gap between university learning and real role requirements. Companies
+define the skills a role needs, students discover their gaps, GenAI builds a personalized path,
+and assessments turn demonstrated ability into a **Verified Skill Profile**. Every completed step
+improves the student's evidence and makes the next action clear.
+
+| Discover | Learn | Prove | Progress |
+|:--:|:--:|:--:|:--:|
+| Explore roles and understand skill gaps | Follow personalized learning and role-based practice | Complete integrity-aware assessments | Track readiness, jobs, and private applications |
+
+> This repository is an educational prototype demonstrating the full loop end to end. It is not
+> presented as a production hiring or credentialing platform.
 
 > **Team handoff:** start with [`TEAM_HANDOFF_CURRENT_STATUS.md`](TEAM_HANDOFF_CURRENT_STATUS.md).
 > It records the verified build, the exact known UI/accessibility debt, and the next safe work.
 
-## What is in this combined release
+## What makes SkillBridge different
 
-- A responsive student workspace with Professional and Casual Pulse presentation modes,
+- A responsive student workspace with **Professional** and **Casual Pulse** presentation modes,
   light/dark/system appearance, role discovery, a unified career journey, learning paths,
   practice scenarios, assessments, jobs, and a private application tracker.
-- A configurable AI copilot with four mentor personalities, conversation history, English/Arabic
+- A configurable **AI copilot** with four mentor personalities, conversation history, English/Arabic
   behavior, live speech controls, interview mode, onboarding, and user-controlled collapse/expand.
-- Explainable career-readiness and job-match scores backed by backend calculations rather than
+- **Explainable readiness and job-match scores** backed by backend calculations rather than
   decorative frontend percentages.
-- Company role authoring and candidate matching, plus anonymized university cohort analytics.
+- **Company role authoring and candidate matching**, plus anonymized university cohort analytics.
 - Hardened auth sessions, ordered SQLite migrations, provider-health reporting, request-scoped
   diagnostics, safe job links, and deterministic offline fallbacks for prototype use.
 
@@ -43,7 +63,7 @@ flowchart LR
   U[University analytics] -. anonymized .-> V
 ```
 
-## Screenshots
+## Product tour
 
 From the running app as all three roles — Student, Company, and University Admin.
 
