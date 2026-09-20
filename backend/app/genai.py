@@ -22,7 +22,7 @@ import time
 
 import truststore
 
-from . import tts
+from . import knowledge_base, tts
 
 PROVIDER = "anthropic_model"
 CLAUDE_MODEL = os.environ.get("SKILLBRIDGE_CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
@@ -6777,7 +6777,7 @@ def _diag_bank_for(skill_name):
     return bank
 
 
-def _diag_fallback(skill_name, competencies, target_role, num_questions):
+def _diag_fallback(skill_name, competencies, target_role, num_questions, max_questions=None):
     """Deterministic diagnostic generation — fully usable with no API key.
 
     Reuses the curated question bank when available (tagging each question with a
@@ -6787,7 +6787,8 @@ def _diag_fallback(skill_name, competencies, target_role, num_questions):
     """
     from . import diagnostics as dx
     comps = list(competencies or [])
-    n = max(dx.DIAGNOSTIC_MIN_QUESTIONS, min(dx.DIAGNOSTIC_MAX_QUESTIONS, int(num_questions or 7)))
+    cap = max_questions if max_questions is not None else dx.DIAGNOSTIC_MAX_QUESTIONS
+    n = max(dx.DIAGNOSTIC_MIN_QUESTIONS, min(cap, int(num_questions or 7)))
     items = []
     bank = _diag_bank_for(skill_name)
 
@@ -6856,6 +6857,17 @@ def generate_diagnostic(skill_name, competencies, target_role=None, num_question
     """
     from . import diagnostics as dx
     comps = list(competencies or [])
+
+    # Reviewed question banks are authoritative.  Returning them directly
+    # prevents a generic skill-wide fallback from relabelling a question as a
+    # different topic (for example an aggregation question as SQL filtering).
+    curated = knowledge_base.curated_diagnostic_questions(skill_name, comps)
+    if curated:
+        return [
+            _diag_item(question, question["competency"], index,
+                       difficulty=question.get("difficulty") or "beginner")
+            for index, question in enumerate(curated)
+        ]
 
     def fallback():
         return _diag_fallback(skill_name, comps, target_role, num_questions)

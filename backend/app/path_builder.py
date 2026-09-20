@@ -37,7 +37,18 @@ def _blueprint_order(skill_name):
         # while the blueprint stores human labels; index both so prerequisite
         # order is respected regardless of which representation reaches us.
         order[label.replace("_", " ")] = i
-        order[sb.competency_slug(comp)] = i
+        slug = sb.competency_slug(comp)
+        order[slug] = i
+        # Older curated curriculum packs used skill-prefixed topic IDs (for
+        # example ``git_bisect_debugging``), while the current blueprint owns
+        # the unprefixed canonical IDs.  Treat those legacy IDs as aliases so
+        # imported content retains the same prerequisite order.
+        for prefix in ("python_", "sql_", "git_"):
+            order[f"{prefix}{slug}"] = i
+            # Some earlier curriculum IDs omitted an ampersand from phrases
+            # such as "Remotes & collaboration".  Preserve that spelling as
+            # an import-only alias; the blueprint label remains canonical.
+            order[f"{prefix}{slug.replace('_&_', '_')}"] = i
     return order
 
 
@@ -69,8 +80,11 @@ def build_personalized_path(skill, diagnostic, required_level=None):
         slug = t.get("competency") or dx.competency_slug(label)
         score = float(t.get("score") or 0)
         action = "learn" if status == dx.WEAK else "review"
+        normalized_label = (label or "").strip().replace("_", " ").lower()
         b_order = blueprint_order.get(
-            (label or "").strip().replace("_", " ").lower(), 10**9)
+            normalized_label,
+            blueprint_order.get(slug, 10**9),
+        )
         selected.append({
             "label": label,
             "slug": slug,

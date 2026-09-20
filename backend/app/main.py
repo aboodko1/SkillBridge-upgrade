@@ -3014,7 +3014,10 @@ def api_submit_practice(student_id: int, skill_id: int, competency: str,
 
     previous_attempts = models.list_practice_attempts(student_id, lesson["id"], limit=3)
     practice_task = _practice_task_for_submission(student_id, lesson, body)
-    static_check = practice.python_functions_static_check(lesson, answer)
+    # Curated lessons choose their own non-executing reviewer.  Unknown or
+    # provider-generated lessons deliberately return None and continue through
+    # the normal evaluation path.
+    static_check = practice.evaluate_practice_static_check(lesson, answer)
     if static_check is not None and (practice_task or {}).get("source") != "remediation":
         practice_task = dict(practice_task)
         practice_task["static_check"] = static_check
