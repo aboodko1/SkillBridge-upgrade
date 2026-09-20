@@ -75,7 +75,7 @@ return (
           <div className="msg" dir="ltr">
             <span className="assistant-avatar"><img src={tutor.avatar} alt={tutor.name} /></span>
             <div className="msg-col">
-              <div className="assistant-bubble busy-ellipsis"><span className="dots"><i></i><i></i><i></i></span></div>
+              <div className="assistant-bubble busy-ellipsis" role="status"><span className="visually-hidden">{ui.thinking}</span><span className="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
             </div>
           </div>
         )}

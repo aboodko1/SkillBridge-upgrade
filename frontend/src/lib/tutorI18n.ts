@@ -230,6 +230,7 @@ function uiText(lang: 'en' | 'ar') {
       'Attachments are not available yet — the tutor answers by text and voice.',
       'المرفقات لسه مش متاحة — المُعلّم بيرد بالنص والصوت.',
     ),
+    tutorUnavailable: s('Tutor unavailable', 'المُعلّم غير متاح'),
     tutorRole: {
       nova: s('Adaptive mentor', 'معلّم تكيفي'),
       axel: s('Technical coach', 'مدرب تقني'),
