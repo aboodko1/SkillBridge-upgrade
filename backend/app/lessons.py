@@ -142,7 +142,7 @@ def _normalize_question(q, i, prefix, competency):
 
 
 _PRACTICAL_RESPONSE_TYPES = {
-    "code", "command", "query", "scenario", "dialogue", "analysis",
+    "code", "command", "query", "sql", "scenario", "dialogue", "analysis",
     "explanation", "code_explanation", "scenario_response", "communication",
     "decision", "write_response", "short_answer", "debug",
     "troubleshooting", "configuration", "implementation_plan",
@@ -238,7 +238,11 @@ def canonical_practice(practice_data, competency, default_title=None, prefer_typ
         response_type = "explanation"
     if not comp:
         comp = human
-    return {
+    # Curated lessons may additionally provide a safe reference shape for a
+    # *text-only* static review (for example SQL or Git commands).  Keep only
+    # explicit display/review metadata here: normalisation must not erase it,
+    # but it must also not turn it into executable code or an answer key.
+    result = {
         "type": "practical",
         "title": title or default_title or f"Apply {human}",
         "task": task,
@@ -254,6 +258,11 @@ def canonical_practice(practice_data, competency, default_title=None, prefer_typ
             "difficulty": "intermediate",
         }],
     }
+    for key in ("language", "starter_code", "evaluation_note"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            result[key] = value
+    return result
 
 
 def normalize_lesson_practice(lesson, competency):
