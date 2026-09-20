@@ -117,6 +117,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
   const [savedOnly, setSavedOnly] = useState(false)
   const [savedState, setSavedState] = useState('')
   const [page, setPage] = useState(0)
+  const [retryJobs, setRetryJobs] = useState(0)
   const [healthOpen, setHealthOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [expandedJobs, setExpandedJobs] = useState(false)
@@ -171,7 +172,16 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
     api.recentJobs({ location, country, market, limit: 16 })
       .then((d) => { setData(d); setTried(true) })
       .catch((e) => { console.error('[dashboard] recent jobs failed:', e); setErr(e.message || String(e)); setData(null); setTried(true) })
-  }, [me?.student?.id, cvKey, market])
+  }, [me?.student?.id, cvKey, market, retryJobs])
+
+  // Re-run the live-feed request without making a student reload the whole app.
+  // The current market/filter context remains unchanged and visible.
+  const retryLiveJobs = () => {
+    setErr('')
+    setData(null)
+    setTried(false)
+    setRetryJobs((count) => count + 1)
+  }
 
   const openJob = (j: RecentJob) => {
     applyCopilot({ page: 'jobs', skillId: null, competency: null, jobTitle: j.title, jobUrl: j.url || null })
@@ -250,7 +260,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
           </label>
         </div>
         {cvMsg && <p className="small" style={{ color: cvWarn ? 'var(--amber)' : 'var(--green)', marginTop: 8 }}>{cvMsg}</p>}
-        {err && <div className="error" style={{ marginTop: 10 }}>{err}</div>}
+        {err && <div className="error phase7-retry-notice" role="alert" style={{ marginTop: 10 }}><span>{err}</span><button type="button" className="btn btn-sm btn-secondary" onClick={retryLiveJobs}>Retry jobs</button></div>}
       </div>
     )
   }
@@ -277,7 +287,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
             </div>
           ))}
         </div>
-        {err && <p className="error" role="alert">{err}</p>}
+        {err && <div className="error phase7-retry-notice" role="alert"><span>{err}</span><button type="button" className="btn btn-sm btn-secondary" onClick={retryLiveJobs}>Retry jobs</button></div>}
         {data?.status === 'cached' && <p className="pulse-feed-note">Recently cached listings · availability may change</p>}
       </section>
     )
@@ -331,7 +341,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
         <button type="button" className="btn btn-sm btn-secondary" onClick={showHealth}>Provider status</button>
       </div>
       {tried && data && <p className="small muted" aria-live="polite">{filteredJobs.length} matching job{filteredJobs.length === 1 ? '' : 's'} shown</p>}
-      {err && <div className="error" style={{ marginBottom: 10 }}>{err}</div>}
+      {err && <div className="error phase7-retry-notice" role="alert" style={{ marginBottom: 10 }}><span>{err}</span><button type="button" className="btn btn-sm btn-secondary" onClick={retryLiveJobs}>Retry jobs</button></div>}
       {tried && data?.providers && data.providers.length > 0 && (() => {
         const h = feedHealth(data.providers)
         if (!h.total) return null
@@ -453,6 +463,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
       ) : data?.source === 'unavailable' ? (
         <div>
           <div className="empty">Live job providers are temporarily unavailable. Try again shortly.</div>
+          <div className="phase7-retry-action"><button type="button" className="btn btn-sm btn-secondary" onClick={retryLiveJobs}>Retry live jobs</button></div>
           {data.providers && data.providers.some((p) => p.status === 'failed') ? (
             <p className="small muted" style={{ marginTop: 8 }}>
               Unavailable now: {data.providers.filter((p) => p.status === 'failed').map((f) => f.source).join(', ')}.

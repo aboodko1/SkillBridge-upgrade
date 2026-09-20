@@ -29,6 +29,38 @@ export function setToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
+const SAFE_DETAIL_MAX = 220
+
+// Phase 7 privacy: server `detail` strings must never leak API keys, credentials,
+// or raw internal diagnostics to students. Only pass through short, human-aimed
+// messages; anything else collapses to the canonical status form.
+function sanitizeServerDetail(status: number, raw: string): string {
+  const fallback = `Request failed: ${status}`
+  if (typeof raw !== 'string' || !raw.trim() || raw === fallback) return raw.trim() ? raw : fallback
+  const s = raw.trim()
+  if (s.length > SAFE_DETAIL_MAX) {
+    console.error('[api] detail too long for student UI:', s)
+    return fallback
+  }
+  const dangerous = [
+    /(sk-|api[_-]?key|api_secret|secret|credential|password|authorization|bearer)["'=\s:]/i,
+    /(BEGIN (RSA |OPENSSH )?PRIVATE KEY|BEGIN CERTIFICATE)/,
+    /https?:\/\/[^\s"'<>]+:[^@\s"'<>]+@/, // url with embedded credentials
+    /\b[Aa]uthorization\s*:/,
+  ]
+  if (dangerous.some((re) => re.test(s))) {
+    console.error('[api] detail contains credential-like content, blocked:', s)
+    return fallback
+  }
+  // Provider/DB raw diagnostics typically contain braces, stack frames, "Traceback",
+  // or "Exception" clauses — not aimed at students.
+  if (/\{|Traceback|^\s*File "|Exception:|raised HTTPException|detail=/.test(s)) {
+    console.error('[api] detail looks like internal diagnostics, blocked:', s)
+    return fallback
+  }
+  return s
+}
+
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -44,7 +76,11 @@ async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
       if (data && data.detail) detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
     } catch { /* non-JSON error body */ }
     if (res.status === 401) setToken(null)
-    throw new Error(detail)
+    // Privacy: the server detail string can carry raw provider/DB diagnostics.
+    // Surface only a safe canonical form to the UI; log the raw text for operators.
+    const safe = sanitizeServerDetail(res.status, detail)
+    if (detail !== safe) console.error(`[api] ${path} server detail sanitized:`, detail)
+    throw new Error(safe)
   }
   return res.json() as Promise<T>
 }
@@ -64,7 +100,9 @@ async function reqBlob(path: string, options: RequestInit = {}): Promise<Blob> {
       if (data && data.detail) detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
     } catch { /* non-JSON error body */ }
     if (res.status === 401) setToken(null)
-    throw new Error(detail)
+    const safe = sanitizeServerDetail(res.status, detail)
+    if (detail !== safe) console.error(`[api] ${path} server detail sanitized:`, detail)
+    throw new Error(safe)
   }
   return res.blob()
 }
@@ -154,6 +192,7 @@ export const api = {
         let detail = 'CV upload failed'
         try { const d = await res.json(); detail = d.detail || detail } catch { /* ignore */ }
         if (res.status === 401) setToken(null)
+        detail = sanitizeServerDetail(res.status, String(detail))
         throw new Error(detail)
       }
       return res.json()

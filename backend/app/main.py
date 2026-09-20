@@ -2178,9 +2178,13 @@ def api_tutor_stt(student_id: int, request: Request, body: dict):
     except sr.UnknownValueError:
         text = ""
     except sr.RequestError as exc:
-        raise HTTPException(status_code=503, detail=f"STT service unavailable: {exc}")
+        # The provider exception may contain internal diagnostics — never surface
+        # it to students. Log for operators only.
+        print(f"[stt] upstream request error: {exc}", file=sys.stderr)
+        raise HTTPException(status_code=503, detail="STT service unavailable")
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"STT failed: {exc}")
+        print(f"[stt] unexpected error: {exc}", file=sys.stderr)
+        raise HTTPException(status_code=500, detail="Speech-to-text failed")
     return {"text": text}
 
 

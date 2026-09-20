@@ -462,11 +462,12 @@ export function CopilotPanel() {
       appendChat(resolvedConversationId, { id: res.id, role: 'assistant', content: replyText, skill_id: res.skill_id ?? copilot.skillId, tutor_id: res.tutor_id ?? tutorId, conversation_id: resolvedConversationId, created_at: res.created_at })
       void refreshConversations()
     } catch (err) {
-      const detail = (err as Error)?.message?.trim()
+      // Privacy: never inject raw server/provider detail into the visible thread.
+      console.error('[copilot] tutor send failed:', err)
       if (conversationId) {
-        appendChat(conversationId, localMessage('assistant', detail && !detail.startsWith('Request failed') ? detail : '(Tutor unavailable - is the backend running?)', copilot.skillId, conversationId))
+        appendChat(conversationId, localMessage('assistant', ui.tutorUnavailable, copilot.skillId, conversationId))
       } else {
-        setVoiceNote(detail && !detail.startsWith('Request failed') ? detail : 'Tutor unavailable - is the backend running?')
+        setVoiceNote(ui.tutorUnavailable)
       }
     } finally {
       setBusy(false)
@@ -527,13 +528,13 @@ export function CopilotPanel() {
       })
       void refreshConversations()
     } catch (err) {
-      const detail = (err as Error)?.message?.trim()
-      const fallback = '(Tutor unavailable - is the backend running?)'
+      console.error('[copilot] regenerate failed:', err)
+      const fallback = ui.tutorUnavailable
       setChats((prev) => {
         const arr = [...(prev[conversationId] ?? [])]
         const i = arr.findIndex((m) => m.id === message.id)
         if (i >= 0) {
-          arr[i] = { ...arr[i], content: detail && !detail.startsWith('Request failed') ? detail : fallback }
+          arr[i] = { ...arr[i], content: fallback }
         }
         return { ...prev, [conversationId!]: arr }
       })
