@@ -386,10 +386,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .score-ring svg { transform: rotate(-90deg); display: block; }
 .score-ring .ring-label {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  flex-direction: column;
+  flex-direction: column; box-sizing: border-box; padding: 0 12px; text-align: center;
 }
-.score-ring .ring-label strong { font-size: 30px; color: var(--sb-midnight-ink); }
-.score-ring .ring-label small { color: var(--slate-500); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.score-ring .ring-label strong { font-size: 30px; line-height: 1.05; color: var(--sb-midnight-ink); }
+.score-ring .ring-label small { color: var(--slate-500); font-size: 11px; line-height: 1.3; text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* ------------------------------------------------------------------ Lists & roles */
 .role-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; }
@@ -3910,6 +3910,35 @@ textarea.free-text:focus { outline: 2px solid var(--sb-indigo); outline-offset: 
 }
 .sro3-page h1, .sro3-page h2, .sro3-page h3, .sro3-page .sro3-role-title { color: var(--sro-midnight); }
 .sro3-page .card-sub { color: var(--sro-muted); }
+
+/* Dark counters for the SRO scoped tokens. The navy hero surface stays
+   fixed-navy (--sro-midnight), so only panel/ink/muted/chip tokens follow. */
+[data-theme="dark"] .sro3-page {
+  --sro-bg: var(--sb-background);
+  --sro-border: var(--sb-border);
+  --sro-muted: var(--sb-muted);
+  --sro-ink: var(--slate-900);
+  --sro-blue: var(--sb-blue-dark);
+  --sro-blue-light: rgba(107, 166, 255, 0.16);
+  --sro-green: var(--sb-green);
+  --sro-green-light: rgba(53, 174, 120, 0.16);
+  --sro-accent-light: rgba(255, 107, 44, 0.14);
+  --sro-accent-dark: var(--sb-indigo-dark);
+  --sro-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
+}
+[data-theme="dark"] .sro3-page h1,
+[data-theme="dark"] .sro3-page h2,
+[data-theme="dark"] .sro3-page h3,
+[data-theme="dark"] .sro3-page .sro3-stat-value,
+[data-theme="dark"] .sro3-page .sro3-rail-title { color: var(--sb-midnight-ink); }
+[data-theme="dark"] .rm-panel { background: rgba(255, 255, 255, 0.04); }
+[data-theme="dark"] .rm-chip { background: rgba(53, 174, 120, 0.16); color: #b6e6cf; border-color: rgba(53, 174, 120, 0.35); }
+[data-theme="dark"] .rm-conf-high { color: #7fd6ab; }
+[data-theme="dark"] .rm-conf-medium { color: #eeb15b; }
+[data-theme="dark"] .rm-action-mapped { background: rgba(53, 174, 120, 0.16); color: #b6e6cf; }
+[data-theme="dark"] .rm-action-unmapped { background: rgba(240, 84, 106, 0.16); color: #f2a0ad; }
+[data-theme="dark"] .rm-action-changed { background: rgba(230, 154, 66, 0.16); color: #eede9e; }
+[data-theme="dark"] .rm-bar-low { background: var(--slate-500); }
 
 /* hero */
 .sro3-hero {
@@ -8340,24 +8369,26 @@ button.user-chip { font-family: inherit; cursor: pointer; }
 .visual-pref-options button.active { border-color: var(--sb-indigo); background: var(--sb-indigo-soft); color: var(--sb-indigo-dark); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sb-indigo) 25%, transparent); }
 
 [data-interface="casual-pulse"] {
-  --sb-indigo: #E87520; --sb-indigo-dark: #C95D10; --sb-indigo-soft: #FFF0E3; --sb-indigo-soft-border: #F4BF91;
-  --coral: #E87520; --coral-dark: #C95D10; --coral-soft: #FFF0E3;
+  --font: 'Inter', 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --sb-indigo: #ee853e; --sb-indigo-dark: #b94b0b; --sb-indigo-soft: #fff0e4; --sb-indigo-soft-border: #F4BF91;
+  --coral: #ee853e; --coral-dark: #b94b0b; --coral-soft: #fff0e4;
   --sb-teal: #D9902E; --sb-teal-dark: #A8640E; --sb-teal-soft: rgba(217, 144, 46, 0.14); --sb-teal-soft-bg: #FFF3DF;
   --sb-violet: #F0A340; --sb-violet-soft: #FFF1DC;
   --sb-blue: #60758C; --sb-blue-dark: #40556D; --sb-blue-soft: rgba(96, 117, 140, 0.13);
   --journey-skills: #E87520; --journey-learning: #F0A340; --journey-assessment: #D9902E; --journey-verified: #36B37E; --journey-career: #E87520;
-  --radius: 14px; --radius-sm: 9px; --radius-lg: 18px;
+  --radius: 18px; --radius-sm: 12px; --radius-lg: 24px;
+  --rail-w: 228px;
 }
 
 /* Casual Pulse Light — warm paper canvas, ink/navy structure, orange energy. */
 [data-interface="casual-pulse"][data-theme="light"] {
   color-scheme: light;
-  --sb-background: #F4F1EB; --sb-panel: #FFFEFB; --sb-surface: #FFFEFB; --white: #FFFEFB; --sb-white: #FFFEFB; --sb-border: #D9D4CA; --border: var(--sb-border);
+  --sb-background: #f6f5f1; --sb-panel: #fff; --sb-surface: #fff; --white: #fff; --sb-white: #fff; --sb-border: #e5e5e1; --border: #e5e5e1;
   --sb-midnight: #101820; --sb-midnight-ink: #111820; --sb-midnight-light: #1A2632; --navy: #101820; --navy-ink: #182532;
-  --slate-900: #111820; --slate-700: #354454; --slate-600: #526170; --slate-500: #6E7B87; --slate-400: #919BA4; --slate-300: #BEC4C8; --slate-200: #D9DDE0; --slate-100: #E9ECEE; --slate-50: #F2F3F2; --sb-muted: #6E7B87;
-  --shadow: 0 1px 2px rgba(16, 24, 32, 0.06), 0 4px 14px rgba(16, 24, 32, 0.06); --shadow-lg: 0 12px 30px rgba(16, 24, 32, 0.13); --shadow-card: 0 22px 45px rgba(16, 24, 32, 0.11);
+  --slate-900: #182026; --slate-700: #394650; --slate-600: #52606b; --slate-500: #66737d; --slate-400: #919BA4; --slate-300: #BEC4C8; --slate-200: #e6e9e9; --slate-100: #f2f3f2; --slate-50: #F2F3F2; --sb-muted: #66737d;
+  --shadow: 0 3px 14px #17202b04; --shadow-lg: 0 12px 32px #17202b0b; --shadow-card: 0 22px 45px rgba(16, 24, 32, 0.11);
 }
-[data-interface="casual-pulse"][data-theme="light"] .sidebar { background: #111A24; }
+[data-interface="casual-pulse"][data-theme="light"] .sidebar { background: #edf0f2; color: #354454; border-right: 1px solid #dfe4e8; }
 [data-interface="casual-pulse"][data-theme="light"] .nav-item.active,
 [data-interface="casual-pulse"][data-theme="light"] .nav-item[aria-current="page"] { background: rgba(232, 117, 32, 0.18); }
 [data-interface="casual-pulse"][data-theme="light"] .card,
@@ -8367,12 +8398,12 @@ button.user-chip { font-family: inherit; cursor: pointer; }
 /* Casual Pulse Dark — near-black canvas with restrained navy and orange. */
 [data-interface="casual-pulse"][data-theme="dark"] {
   color-scheme: dark;
-  --sb-background: #070A0F; --sb-panel: #101823; --sb-surface: #101823; --white: #101823; --sb-white: #101823; --sb-border: #283442; --border: var(--sb-border);
+  --sb-background: #0b1017; --sb-panel: #111a25; --sb-surface: #111a25; --white: #111a25; --sb-white: #111a25; --sb-border: #24303e; --border: #24303e;
   --sb-midnight: #EDEFF2; --sb-midnight-ink: #F3F1EC; --sb-midnight-light: #182432; --navy: #0A1119; --navy-ink: #121E2A;
-  --slate-900: #F3F1EC; --slate-800: #E2E4E5; --slate-700: #C4CAD0; --slate-600: #A6B0BA; --slate-500: #87939F; --slate-400: #65727E; --slate-300: #465463; --slate-200: #2A3745; --slate-100: #1A2632; --slate-50: #141E29; --sb-muted: #87939F;
-  --sb-indigo-dark: #FF9B4B; --coral-dark: #FF9B4B; --sb-teal-dark: #F0A340; --sb-blue-dark: #8FA2B5;
-  --sb-violet-soft: rgba(240, 163, 64, 0.14); --sb-blue-soft: rgba(143, 162, 181, 0.14); --sb-indigo-soft: rgba(232, 117, 32, 0.15); --sb-indigo-soft-border: rgba(232, 117, 32, 0.42);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.42), 0 5px 16px rgba(0, 0, 0, 0.36); --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.55); --shadow-card: 0 24px 52px rgba(0, 0, 0, 0.5);
+  --slate-900: #F3F1EC; --slate-800: #E2E4E5; --slate-700: #cbd4de; --slate-600: #b0bcc9; --slate-500: #9ba9b9; --slate-400: #65727E; --slate-300: #465463; --slate-200: #2A3745; --slate-100: #1A2632; --slate-50: #141E29; --sb-muted: #9ba9b9;
+  --sb-indigo-dark: #ffae72; --coral-dark: #ffae72; --sb-teal-dark: #F0A340; --sb-blue-dark: #8FA2B5;
+  --sb-violet-soft: rgba(240, 163, 64, 0.14); --sb-blue-soft: rgba(143, 162, 181, 0.14); --sb-indigo-soft: #ed853e18; --sb-indigo-soft-border: rgba(232, 117, 32, 0.42);
+  --shadow: 0 4px 20px #00000012; --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.55); --shadow-card: 0 24px 52px rgba(0, 0, 0, 0.5);
 }
 [data-interface="casual-pulse"][data-theme="dark"] .sidebar,
 [data-interface="casual-pulse"][data-theme="dark"] .login-hero-panel,
@@ -8392,8 +8423,8 @@ button.user-chip { font-family: inherit; cursor: pointer; }
 
 /* ------------------------------------------------------------------ Casual Pulse youth layout */
 .interface-casual-pulse .content { max-width: none; padding: 18px 24px 54px; }
-.interface-casual-pulse .sidebar { width: 220px; }
-.interface-casual-pulse .content { margin-left: 220px; }
+.interface-casual-pulse .sidebar { width: var(--rail-w); }
+.interface-casual-pulse .content { margin-left: var(--rail-w); }
 .interface-casual-pulse .topbar { min-height: 48px; margin: -18px -24px 18px; padding: 10px 24px; border-bottom: 1px solid var(--sb-border); flex-wrap: nowrap; }
 .interface-casual-pulse .topbar > div:first-child { min-width: 260px; }
 .pulse-global-search { width: min(560px, 100%); height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: var(--sb-panel); border: 1px solid var(--sb-border); border-radius: 10px; color: var(--slate-500); }

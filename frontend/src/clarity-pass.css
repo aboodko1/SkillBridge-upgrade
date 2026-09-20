@@ -202,12 +202,12 @@
 .srb-match-inner { gap: 5px; padding: 5px; text-align: center; }
 .srb-match-inner strong { font-size: 15px; line-height: 1; }
 .srb-match-label {
-  max-width: 62px;
+  max-width: 90px;
   margin-top: 0;
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 650;
-  line-height: 1.2;
-  letter-spacing: .06em;
+  line-height: 1.25;
+  letter-spacing: .05em;
   text-align: center;
   text-transform: uppercase;
 }

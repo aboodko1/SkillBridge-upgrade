@@ -8,10 +8,7 @@
 .hero-logo .sb-brand img { width: 58px; height: 64px; }
 .hero-logo .sb-brand-type strong { font-size: 30px; }
 .sb-brand-compact img { width: 40px; height: 40px; }
-[data-interface="casual-pulse"] { --font: 'Inter', 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; --radius: 18px; --radius-sm: 12px; --radius-lg: 24px; --sb-indigo: #ee853e; --sb-indigo-dark: #b94b0b; --sb-indigo-soft: #fff0e4; }
-[data-interface="casual-pulse"][data-theme="light"] { --sb-background: #f6f5f1; --sb-panel: #fff; --white: #fff; --sb-surface: #fff; --sb-border: #e5e5e1; --border: #e5e5e1; --slate-900: #182026; --slate-700: #394650; --slate-600: #52606b; --slate-500: #66737d; --slate-100: #f2f3f2; --slate-200: #e6e9e9; --shadow: 0 3px 14px #17202b04; --shadow-lg: 0 12px 32px #17202b0b; }
-[data-interface="casual-pulse"][data-theme="dark"] { --sb-background: #0b1017; --sb-panel: #111a25; --white: #111a25; --sb-surface: #111a25; --sb-border: #24303e; --border: #24303e; --slate-500: #9ba9b9; --slate-600: #b0bcc9; --slate-700: #cbd4de; --sb-indigo-dark: #ffae72; --sb-indigo-soft: #ed853e18; --shadow: 0 4px 20px #00000012; }
-.interface-casual-pulse .sidebar { width: 228px; padding: 28px 16px 20px; gap: 28px; background: #101722; }
+.interface-casual-pulse .sidebar { width: var(--rail-w); padding: 28px 16px 20px; gap: 28px; background: #101722; }
 .interface-casual-pulse .brand-block { padding: 0 1px; }
 .interface-casual-pulse .main-nav { gap: 9px; }
 .interface-casual-pulse .nav-item { min-height: 47px; padding: 12px 14px; color: #aab7c8; font-size: 13px; font-weight: 550; }
@@ -19,7 +16,7 @@
 .interface-casual-pulse .nav-item.active::after { width: 5px; height: 5px; box-shadow: none; }
 .interface-casual-pulse .nav-item:hover { color: #fff; background: #ffffff09; }
 .interface-casual-pulse .role-badge { background: #ffffff04; border-color: #ffffff0c; line-height: 1.6; }
-.interface-casual-pulse .content { margin-left: 228px; min-width: 0; padding: 24px 32px 64px; }
+.interface-casual-pulse .content { margin-left: var(--rail-w); min-width: 0; padding: 24px 32px 64px; }
 .interface-casual-pulse .topbar { margin: 0 0 30px; padding: 0 0 20px; gap: 20px; min-width: 0; }
 .interface-casual-pulse .topbar > div:first-child { min-width: 0; }
 .interface-casual-pulse .topbar-actions { gap: 12px; }
@@ -88,7 +85,7 @@ button.pulse-journey-step { border: 0; background: none; padding: 0; min-width: 
 .pulse-learning-copy em { display: inline-flex; gap: 4px; align-items: center; border: 0; font-size: 9px; }
 .pulse-learning-action { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 13px; border-top: 1px solid var(--sb-border); }
 .pulse-learning-action > small { color: var(--slate-500); font-size: 11px; }
-.pulse-learning-action button { width: auto; min-height: 42px; padding: 10px 20px; font-size: 12px; background: #ee853e; color: #20150e; box-shadow: 0 4px 12px #ee853e15; }
+.pulse-learning-action button { width: auto; min-height: 42px; padding: 10px 20px; font-size: 12px; background: var(--sb-indigo); color: #20150e; box-shadow: 0 4px 12px var(--sb-indigo-soft-border); }
 .pulse-learning-action button:hover { background: #f49c61; transform: translateY(-1px); }
 .pulse-opportunities { padding: 22px 20px 12px; }
 .pulse-opportunities .pulse-section-head { margin-bottom: 18px; }
@@ -122,7 +119,7 @@ button.pulse-journey-step { border: 0; background: none; padding: 0; min-width: 
 [data-interface="casual-pulse"] .card, [data-interface="casual-pulse"] .stat-card { border-radius: 17px; box-shadow: var(--shadow); }
 [data-interface="casual-pulse"] .card:hover { box-shadow: var(--shadow-lg); }
 [data-interface="casual-pulse"] .btn { min-height: 38px; border-radius: 10px; font-weight: 600; }
-[data-interface="casual-pulse"] .btn-primary { background: #ee853e; color: #20150e; border-color: transparent; }
+[data-interface="casual-pulse"] .btn-primary { background: var(--sb-indigo); color: #20150e; border-color: transparent; }
 [data-interface="casual-pulse"] .learning-hero, [data-interface="casual-pulse"] .assessment-hero, [data-interface="casual-pulse"] .scn-hero { border-radius: 20px; }
 [data-interface="casual-pulse"] .app-footer { opacity: .7; font-size: 10px; }
 [data-interface="casual-pulse"] .copilot-panel:not(.copilot-open) { width: 238px; right: 18px; bottom: 12px; border-radius: 12px; }
@@ -138,8 +135,11 @@ button.pulse-journey-step { border: 0; background: none; padding: 0; min-width: 
 @media (min-width: 1650px) { .pulse-role-card { grid-template-columns: 64px minmax(0, 1fr) 126px 160px; } .pulse-halfway { display: block; padding-left: 18px; } .pulse-job-row { grid-template-columns: 30px minmax(0, 1fr) 130px 44px 28px; } .pulse-job-location { display: block; } }
 @media (max-width: 1250px) { .interface-casual-pulse .content { padding: 22px 22px 100px; } .pulse-dashboard-grid { grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; } .pulse-role-card { grid-template-columns: minmax(0, 1fr) 110px; padding: 20px; } .pulse-role-icon { display: none; } .pulse-role-card .score-ring-view { width: 110px; } .pulse-mentor-card { padding: 20px 15px; } .pulse-journey-card { padding: 20px 16px; } }
 @media (max-width: 1080px) { .pulse-dashboard-grid { grid-template-columns: minmax(0, 1fr); } .pulse-mentor-rail { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .pulse-mentor-card { grid-row: span 2; } .pulse-mini-card { align-self: start; } .pulse-role-card { grid-template-columns: 64px minmax(0, 1fr) 126px; } .pulse-role-icon { display: grid; } }
-@media (max-width: 920px) { .interface-casual-pulse .content { margin-left: 0; } .interface-casual-pulse .sidebar { width: 228px; } .interface-casual-pulse .topbar { margin: 0 0 22px; padding: 0 0 16px; } .interface-casual-pulse .nav-toggle { margin-right: 12px; flex-shrink: 0; } }
-@media (max-width: 600px) { .interface-casual-pulse .content { padding: 18px 14px 100px; } .interface-casual-pulse .topbar-actions { gap: 7px; } .interface-casual-pulse .topbar-bell { display: none; } .pulse-global-search { display: flex; height: 38px; padding: 0 9px; gap: 6px; } .pulse-global-search input { font-size: 11px; } .pulse-global-search kbd { display: none; } .pulse-welcome h1 { font-size: 29px; } .pulse-welcome p { font-size: 12px; } .pulse-welcome { margin-bottom: 20px; } .pulse-date { display: none; } .pulse-role-card { grid-template-columns: minmax(0, 1fr) 100px; gap: 10px; padding: 18px; } .pulse-role-icon { display: none; } .pulse-role-card .score-ring-view { width: 100px; } .pulse-role-card .score-ring { transform: scale(.66); } .pulse-role-copy h2 { font-size: 19px; } .pulse-role-copy em { font-size: 9px; } .pulse-section-head h3 { font-size: 15px; } .pulse-section-head button { font-size: 10px; } .pulse-journey-line { grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: visible; gap: 0; } .pulse-journey-step small { display: none; } .pulse-journey-step b { font-size: 9px; } .pulse-journey-step > span { width: 29px; height: 29px; font-size: 11px; } .pulse-journey-step::before { top: 14px; } .pulse-learning-card { padding: 14px; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; } .pulse-learning-icon { width: 38px; height: 42px; } .pulse-learning-copy h3 { font-size: 14px; } .pulse-learning-action > small { display: none; } .pulse-learning-action button { width: 100%; } .pulse-mentor-rail { grid-template-columns: minmax(0, 1fr); } .pulse-mentor-card { grid-row: auto; } .pulse-mentor-avatar { width: 90px; height: 90px; } .pulse-opportunities { padding: 18px 14px 10px; } .pulse-job-title { font-size: 11px; } .pulse-job-score { font-size: 10px; } .user-menu-popover { max-width: calc(100vw - 28px); } }
+@media (max-width: 920px) { .interface-casual-pulse .content { margin-left: 0; } .interface-casual-pulse .sidebar { width: var(--rail-w); } .interface-casual-pulse .topbar { margin: 0 0 22px; padding: 0 0 16px; } .interface-casual-pulse .nav-toggle { margin-right: 12px; flex-shrink: 0; } }
+@media (max-width: 600px) { .interface-casual-pulse .content { padding: 18px 14px 100px; } .interface-casual-pulse .topbar-actions { gap: 7px; } .interface-casual-pulse .topbar-bell { display: none; } .pulse-global-search { display: flex; height: 38px; padding: 0 9px; gap: 6px; } .pulse-global-search input { font-size: 11px; } .pulse-global-search kbd { display: none; } .pulse-welcome h1 { font-size: 29px; } .pulse-welcome p { font-size: 12px; } .pulse-welcome { margin-bottom: 20px; } .pulse-date { display: none; } .pulse-role-card { grid-template-columns: minmax(0, 1fr) 100px; gap: 10px; padding: 18px; } .pulse-role-icon { display: none; } .pulse-role-card .score-ring-view { width: 100px; } .pulse-role-card .score-ring { transform: scale(.66); }
+.pulse-role-card .ring-label { padding: 0 10px; }
+.pulse-role-card .ring-label strong { font-size: 44px; }
+.pulse-role-card .ring-label small { font-size: 15px; letter-spacing: .05em; max-width: 128px; } .pulse-role-copy h2 { font-size: 19px; } .pulse-role-copy em { font-size: 9px; } .pulse-section-head h3 { font-size: 15px; } .pulse-section-head button { font-size: 10px; } .pulse-journey-line { grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: visible; gap: 0; } .pulse-journey-step small { display: none; } .pulse-journey-step b { font-size: 9px; } .pulse-journey-step > span { width: 29px; height: 29px; font-size: 11px; } .pulse-journey-step::before { top: 14px; } .pulse-learning-card { padding: 14px; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; } .pulse-learning-icon { width: 38px; height: 42px; } .pulse-learning-copy h3 { font-size: 14px; } .pulse-learning-action > small { display: none; } .pulse-learning-action button { width: 100%; } .pulse-mentor-rail { grid-template-columns: minmax(0, 1fr); } .pulse-mentor-card { grid-row: auto; } .pulse-mentor-avatar { width: 90px; height: 90px; } .pulse-opportunities { padding: 18px 14px 10px; } .pulse-job-title { font-size: 11px; } .pulse-job-score { font-size: 10px; } .user-menu-popover { max-width: calc(100vw - 28px); } }
 @media (max-width: 600px) {
   .interface-casual-pulse .topbar { display: flex; flex-wrap: wrap; gap: 12px; }
   .interface-casual-pulse .topbar > div:first-child { display: flex; align-items: center; flex: 1 1 100%; min-width: 0; }
