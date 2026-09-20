@@ -235,6 +235,26 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
   const browseSkills = allSkills.filter((s) => !gapSkillIds.has(s.id) || !renderedGaps.find((g) => g.skill_id === s.id))
   const showBrowse = viableSkills.length === 0 && allSkills.length > 0
 
+  // Single obvious primary action above the fold: the next real step is either
+  // the first assessable gap or, when nothing is open, the browse list.
+  const heroPrimary = analysis
+    ? viableSkills.length > 0
+      ? { skillId: viableSkills[0].skill_id, label: `Start assessment — ${viableSkills[0].skill_name}` }
+      : browseSkills.length > 0
+        ? { skillId: browseSkills[0].id, label: 'Browse skills to verify' }
+        : null
+    : null
+  const scrollToSkill = (skillId: number) => {
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-skill-id="${skillId}"]`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.classList.add('asm-focus-flash')
+        setTimeout(() => el.classList.remove('asm-focus-flash'), 2600)
+      }
+    })
+  }
+
   const renderGap = (g: any) => {
     const last = attempts.filter((a) => a.skill_id === g.skill_id).sort((a, b) => b.id - a.id)[0]
     return (
@@ -275,6 +295,11 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
           <p className="eyebrow">Assessments</p>
           <h1>Turn claimed skills into verified evidence.</h1>
           <p>Choose one skill, complete its assessment, and add trusted evidence to your profile.</p>
+          {heroPrimary && (
+            <button type="button" className="btn btn-primary asm-hero-cta" onClick={() => scrollToSkill(heroPrimary.skillId)}>
+              <IconAssessment size={15} /> {heroPrimary.label}
+            </button>
+          )}
         </div>
         <div className="hero-metrics">
           <div className="hero-metric gaps">
@@ -289,6 +314,11 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
             <p className="hero-metric-value">{me.student.verified_skills.length}</p>
             <p className="hero-metric-label">skills verified</p>
           </div>
+        </div>
+        <div className="preflight" role="note">
+          <span className="preflight-item"><IconCheck size={14} /> 10 questions per skill</span>
+          <span className="preflight-item"><IconCheck size={14} /> Score 70% or more passes</span>
+          <span className="preflight-item"><IconShield size={14} /> Camera proctoring throughout</span>
         </div>
       </section>
 
@@ -351,37 +381,45 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
           {attempts.length === 0 ? (
             <div className="empty" style={{ margin: '12px 0' }}>No attempts recorded yet.</div>
           ) : (
-            <ul className="history-list">
-              {attempts.map((a) => {
-                const flags: IntegrityFlag[] = safeParseJson(a.flags)
-                const verified = a.passed && verifiedSkillIds.has(a.skill_id)
-                return (
-                  <li className="history-item" key={a.id}>
-                    <div className="history-top">
-                      <h4>{a.skill_name}</h4>
-                      <span className={`status-pill ${verified ? 'verified' : a.passed ? 'passed' : 'failed'}`}>
-                        {verified ? 'Verified' : a.passed ? 'Passed' : 'Failed'}
-                      </span>
-                    </div>
-                    {flags.length > 0 && (
-                      <div className="integrity-alert">
-                        <IconFlag size={14} /> {flags.length} integrity flag{flags.length === 1 ? '' : 's'} raised on this attempt.
-                      </div>
-                    )}
-                    <p className="history-meta">
-                      Score <strong className="history-score">{a.score}%</strong> · {a.level_before} → {a.level_after}
-                    </p>
-                    <button
-                      className="link-btn"
-                      onClick={() => setEvidenceId(evidenceId === a.id ? null : a.id)}
-                    >
-                      {evidenceId === a.id ? 'Hide evidence' : 'Evidence & competency breakdown'}
-                    </button>
-                    {evidenceId === a.id && <AttemptEvidence attempt={a} />}
-                  </li>
-                )
-              })}
-            </ul>
+            <details className="details-expander">
+              <summary>
+                <span>Show assessment history</span>
+                <span className="de-count">({attempts.length} attempt{attempts.length === 1 ? '' : 's'})</span>
+              </summary>
+              <div className="de-body">
+                <ul className="history-list">
+                  {attempts.map((a) => {
+                    const flags: IntegrityFlag[] = safeParseJson(a.flags)
+                    const verified = a.passed && verifiedSkillIds.has(a.skill_id)
+                    return (
+                      <li className="history-item" key={a.id}>
+                        <div className="history-top">
+                          <h4>{a.skill_name}</h4>
+                          <span className={`status-pill ${verified ? 'verified' : a.passed ? 'passed' : 'failed'}`}>
+                            {verified ? 'Verified' : a.passed ? 'Passed' : 'Failed'}
+                          </span>
+                        </div>
+                        {flags.length > 0 && (
+                          <div className="integrity-alert">
+                            <IconFlag size={14} /> {flags.length} integrity flag{flags.length === 1 ? '' : 's'} raised on this attempt.
+                          </div>
+                        )}
+                        <p className="history-meta">
+                          Score <strong className="history-score">{a.score}%</strong> · {a.level_before} → {a.level_after}
+                        </p>
+                        <button
+                          className="link-btn"
+                          onClick={() => setEvidenceId(evidenceId === a.id ? null : a.id)}
+                        >
+                          {evidenceId === a.id ? 'Hide evidence' : 'Evidence & competency breakdown'}
+                        </button>
+                        {evidenceId === a.id && <AttemptEvidence attempt={a} />}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            </details>
           )}
         </section>
       </div>

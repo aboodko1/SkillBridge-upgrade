@@ -1750,6 +1750,14 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
           <p className="sro3-eyebrow">Find your next role</p>
           <h1 className="sro3-hero-title">Choose the role your learning path should serve.</h1>
           <p className="sro3-hero-sub">Explore roles that fit your profile, compare the strongest options, then choose one to shape your learning path.</p>
+          {!currentTarget && (
+            <button type="button" className="btn sro3-hero-cta" onClick={() => {
+              if (tab !== 'all') setTab('all')
+              requestAnimationFrame(() => document.getElementById('role-library')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+            }}>
+              <IconTarget size={15} /> Choose a target role
+            </button>
+          )}
         </div>
       </section>
 

@@ -1,0 +1,142 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Phase 1 — IA & page-density layer (additive).
+   Loaded last (after index.css / pulse-polish.css / clarity-pass.css).
+   Rules here compose with the existing token system — nothing is renamed or
+   removed, and all colors/spacing use the --sb-* tokens so Professional +
+   Casual Pulse and light/dark both inherit the look.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* One obvious primary action above the fold — Roles.
+   The dark SRO hero copy is already a flex column; the CTA slides in under the
+   sub-line and is left-aligned so it never competes with the target card. */
+.sro3-hero-copy > .sro3-hero-cta {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+/* One obvious primary action above the fold — Assessments.
+   Lives in the hero copy column (left) so the user sees the exact next step
+   without hunting across the skill list. */
+.asm-hero-cta {
+  margin-top: 14px;
+  align-self: flex-start;
+}
+
+/* Pre-flight facts strip (Assessments). Honest, static, real numbers only. */
+.preflight {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 4px 2px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.88);
+}
+.preflight-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.preflight-item svg {
+  flex: none;
+  color: var(--sb-teal);
+}
+
+/* Progressive disclosure — secondary lists/panels collapse behind a native
+   <details> so the primary section stays dominant. */
+.details-expander {
+  border: 1px solid color-mix(in srgb, var(--sb-border) 90%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--sb-panel) 92%, var(--sb-background));
+}
+.details-expander > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--sb-midnight-ink, var(--slate-700));
+  border-radius: inherit;
+  user-select: none;
+}
+.details-expander > summary::-webkit-details-marker {
+  display: none;
+}
+.details-expander > summary::after {
+  content: "";
+  margin-inline-start: auto;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--slate-400);
+  border-bottom: 2px solid var(--slate-400);
+  transform: rotate(-45deg);
+  transition: transform 0.18s ease;
+}
+.details-expander[open] > summary::after {
+  transform: rotate(45deg);
+}
+.details-expander > summary .de-count {
+  color: var(--slate-500);
+  font-weight: 600;
+  margin-inline-start: 4px;
+}
+.details-expander > .de-body {
+  padding: 0 14px 14px;
+}
+.details-expander > .de-body .history-list {
+  margin: 0;
+}
+
+/* Consistent page-head anatomy for pages that adopt it (e.g. University). */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 4px 0 18px;
+}
+.page-head-text {
+  min-width: 0;
+}
+.page-head-text .eyebrow {
+  margin: 0 0 6px;
+}
+.page-head-title {
+  font-size: clamp(22px, 2.6vw, 30px);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 0 0 6px;
+}
+.page-head-purpose {
+  color: var(--slate-500);
+  max-width: 640px;
+  line-height: 1.6;
+  margin: 0;
+}
+.page-head-action {
+  flex: none;
+}
+
+/* Reduced motion: keep the disclosure chevron state-change instant. */
+@media (prefers-reduced-motion: reduce) {
+  .details-expander > summary::after {
+    transition: none;
+  }
+}
+
+/* Narrow viewports: stack the page-head and let facts wrap calmly. */
+@media (max-width: 720px) {
+  .page-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .preflight {
+    gap: 6px 14px;
+  }
+}

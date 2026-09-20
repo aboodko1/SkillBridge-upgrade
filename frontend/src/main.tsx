@@ -4,6 +4,7 @@ import App from './App'
 import './index.css'
 import './pulse-polish.css'
 import './clarity-pass.css'
+import './ia-system.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

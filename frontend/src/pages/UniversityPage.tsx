@@ -45,6 +45,13 @@ export default function UniversityPage() {
           <span><strong>{institution}</strong>{me?.country ? ` · ${me.country}` : ''}</span>
         </div>
       )}
+      <div className="page-head">
+        <div className="page-head-text">
+          <p className="eyebrow">University</p>
+          <h1 className="page-head-title">Cohort statistics</h1>
+          <p className="page-head-purpose">Anonymized, aggregated skill-gap statistics for your institution — unlocked once enough students consent to the cohort.</p>
+        </div>
+      </div>
       <div className={`rule-banner ${ruleSatisfied ? '' : 'blocking'}`}>
         <IconAlert size={17} style={{ color: ruleSatisfied ? 'var(--sb-indigo)' : 'var(--amber)' }} />
         <div>
