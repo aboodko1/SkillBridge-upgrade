@@ -98,3 +98,51 @@ def test_agentic_skill_has_trusted_blueprint():
     assert sb.has_blueprint("Agentic AI")
     comps = sb.required_competencies("Agentic AI", "Beginner", "Advanced")
     assert set(comps) == set(AGENTIC_COMPETENCIES)
+
+
+def test_one_agentic_topic_walks_pipeline_end_to_end(client, auth_headers, student_id):
+    """Diagnostic -> path -> learn -> practice -> mini check for one topic."""
+    from app import models
+    skill = models.get_skill_by_name("Agentic AI")
+    if not skill:
+        skill = models.create_skill("Agentic AI", "Artificial Intelligence")
+    sid = skill["id"]
+    headers = auth_headers("aisha@student.edu")
+
+    gen = client.post(
+        f"/api/students/{student_id}/learning/{sid}/diagnostic/generate",
+        json={}, headers=headers).json()
+    assert gen["questions"]
+    comps = {q.get("competency") for q in gen["questions"]}
+    # Diagnostic questions carry slug-form competencies; the first agentic topic
+    # (Tool Use & Function Calling -> tool_use_&_function_calling) must surface.
+    assert "tool_use_&_function_calling" in comps or AGENTIC_COMPETENCIES[0] in comps
+
+    answers = []
+    for i, q in enumerate(gen["questions"]):
+        if i % 2 == 0:
+            answers.append("no idea about this topic")  # wrong free_text
+        else:
+            answers.append(q["correct_answer"])  # correct
+    sub = client.post(
+        f"/api/students/{student_id}/learning/{sid}/diagnostic/submit",
+        json={"diagnostic_id": gen["diagnostic_id"], "answers": answers}, headers=headers)
+
+    path = client.post(
+        f"/api/students/{student_id}/learning/{sid}/personalized-path/generate",
+        json={}, headers=headers).json()
+    assert path.get("items")
+
+    target = path["items"][0]["competency"]
+    lesson = client.post(
+        f"/api/students/{student_id}/learning/{sid}/lessons/{target}/generate",
+        json={}, headers=headers).json()
+    content = lesson["content"]
+    assert content["learn"]["explanation"]
+    assert content["practice"]["task"]
+    assert content["mini_check"]["questions"]
+    assert content["canonical"]["source"] == "trusted_cs_knowledge_base"
+    # Practice score is never reused as a Mini Check score: distinct item sets.
+    mini_ids = {q["id"] for q in content["mini_check"]["questions"]}
+    practice_ids = {q.get("id") for q in content["practice"].get("questions", [])}
+    assert not (mini_ids & practice_ids)
