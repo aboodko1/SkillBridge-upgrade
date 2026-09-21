@@ -541,6 +541,24 @@ def ensure_catalog_roles():
         ], description=desc, is_reference=1, source="catalog")
 
 
+def ensure_locations():
+    """Backfill the cascading signup reference data (countries + universities).
+
+    ``seed()`` only runs on a truly fresh DB, so an existing database that was
+    created before the locations seed (or that had those rows cleared) would
+    serve an empty ``GET /api/locations``. ``add_city`` / ``add_university`` are
+    ``INSERT OR IGNORE`` and therefore idempotent, so this is safe to run on
+    every startup and never duplicates rows or touches user data.
+    """
+    init_db()
+    for country, unis in UNIVERSITIES:
+        for uni in unis:
+            models.add_university(country, uni)
+    for country, cities in CITIES.items():
+        for city in cities:
+            models.add_city(country, city)
+
+
 if __name__ == "__main__":
     seed()
     print("Seed complete.")

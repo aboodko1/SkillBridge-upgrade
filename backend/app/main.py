@@ -202,6 +202,9 @@ def on_startup():
         # Existing databases are only migrated so their new columns appear.
         init_db()
     seed.ensure_catalog_roles()
+    # Backfill the cascading signup country/university reference data even when
+    # the DB file already exists (idempotent — INSERT OR IGNORE).
+    seed.ensure_locations()
     # Phase D: fill canonical metadata for rows created before migration 0003
     # (idempotent; a no-op for fresh databases).
     models.backfill_role_canonical_metadata()
