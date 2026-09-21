@@ -372,8 +372,10 @@ def _grounding_sources(skill_name, skill_category, competency, required_level, t
         url = str(r.get("url") or "").strip()
         title = str(r.get("title") or "").strip()
         if url and title:
+            excerpt = str(r.get("reason") or r.get("helpfulness") or "").strip()
             out.append({"title": title, "url": url,
-                        "source": str(r.get("source") or "curated")})
+                        "source": str(r.get("source") or "curated"),
+                        "excerpt": excerpt})
         if len(out) >= 4:
             break
     return out
@@ -393,6 +395,7 @@ def _grounding_sources_from_model(model_value, trusted):
             "title": str(t.get("title") or ""),
             "url": str(t.get("url") or ""),
             "source": str(t.get("source") or "curated"),
+            "excerpt": str(t.get("excerpt") or ""),
         }
     if isinstance(model_value, list):
         for s in model_value:
@@ -404,6 +407,7 @@ def _grounding_sources_from_model(model_value, trusted):
                     "title": str(s.get("title") or merged[url]["title"]),
                     "url": url,
                     "source": str(s.get("source") or "curated"),
+                    "excerpt": str(s.get("excerpt") or merged[url]["excerpt"]),
                 }
     return list(merged.values())[:4]
 
@@ -725,7 +729,9 @@ def generate_lesson(skill_name, competency, action, topic_status=None,
         "- Any code you show must be valid/runnable. There is no execution sandbox, so be "
         "conservative: prefer well-known, stable syntax and keep code minimal and correct.\n"
         "- Treat the provided 'Trusted grounding sources' as the only allowed source of URLs/named "
-        "official resources. Do NOT attach invented links to Learn content.\n\n"
+        "official resources. Do NOT attach invented links to Learn content.\n"
+        "- Each trusted source carries a short 'excerpt' describing what it covers — use it to "
+        "ground your technical claims and stay accurate, but never copy it verbatim as lesson text.\n\n"
         "JOB-READINESS — the learner is preparing for a real junior role:\n"
         "- Anchor the concept to why it shows up in the target role, what a working professional "
         "actually does with it day-to-day, and a common mistake beginners make (interviewers probe "
