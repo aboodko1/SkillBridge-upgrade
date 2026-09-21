@@ -174,6 +174,7 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
   const [keepIds, setKeepIds] = useState<Set<number>>(new Set())
   const [allSkills, setAllSkills] = useState<Skill[]>([])
   const [loadError, setLoadError] = useState('')
+  const [retryKey, setRetryKey] = useState(0)
   const [evidenceId, setEvidenceId] = useState<number | null>(null)
   const [focusSkillName, setFocusSkillName] = useState('')
   const toast = useToast()
@@ -211,6 +212,7 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
 
   useEffect(() => {
     if (me?.student?.id) {
+      setLoadError('')
       api.analysis(me.student.id)
         .then(setAnalysis)
         .catch((e) => { console.error('[assessments] analysis failed:', e); setLoadError((p) => p || ('Failed to load gap analysis: ' + (e.message || e))) })
@@ -221,7 +223,7 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
         .then(setAllSkills)
         .catch((e) => { console.error('[assessments] skills failed:', e); setLoadError((p) => p || ('Failed to load skills: ' + (e.message || e))) })
     }
-  }, [me])
+  }, [me, retryKey])
 
   if (!me?.student) return <div className="empty">Log in as a student to take assessments.</div>
   const viableSkills = (analysis?.skill_gaps || []).filter((g) => g.status !== 'strong')
@@ -345,7 +347,12 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
               <p className="panel-subtitle">Take a proctored 10-question assessment to move a skill from self-reported to Verified.</p>
             </div>
           </div>
-          {loadError && <div className="error" style={{ marginBottom: 12 }}><IconAlert size={15} /> {loadError}</div>}
+          {loadError && (
+            <div className="error phase7-retry-notice" role="alert" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><IconAlert size={15} /> {loadError}</span>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => setRetryKey((k) => k + 1)}>Retry</button>
+            </div>
+          )}
           {renderedGaps.length === 0 && !showBrowse && (
             <div className="empty" style={{ margin: '12px 0' }}>No skill gaps to assess. Select a target role first to see tailored gaps.</div>
           )}

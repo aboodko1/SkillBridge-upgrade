@@ -9,6 +9,7 @@ import JobTrackerPanel from '../components/JobTrackerPanel'
 import JourneySpine from '../components/JourneySpine'
 import PrepareJobModal from '../components/PrepareJobModal'
 import { humanizeTopicLabel } from '../lib/topicLabels'
+import { failureMessage } from '../lib/failureStates'
 import { IconArrowRight, IconCheck, IconVerified, IconExternal, IconShield, IconUpload, IconBookmark, IconTarget, IconBook, IconChat, IconSparkles } from '../components/Icons'
 import { TUTOR_PROFILES } from '../lib/tutorProfiles'
 import type { AppearancePref, InterfacePref } from '../hooks/useThemePref'
@@ -171,7 +172,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
     const country = s?.country || (me as any)?.country || ''
     api.recentJobs({ location, country, market, limit: 16 })
       .then((d) => { setData(d); setTried(true) })
-      .catch((e) => { console.error('[dashboard] recent jobs failed:', e); setErr(e.message || String(e)); setData(null); setTried(true) })
+      .catch((e) => { console.error('[dashboard] recent jobs failed:', e); setErr(failureMessage(e, 'en', e?.message || 'Could not load jobs.')); setData(null); setTried(true) })
   }, [me?.student?.id, cvKey, market, retryJobs])
 
   // Re-run the live-feed request without making a student reload the whole app.

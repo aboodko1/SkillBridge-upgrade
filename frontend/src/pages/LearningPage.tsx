@@ -1260,10 +1260,17 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
       const latest = await api.latestDiagnostic(studentId, skillId)
       setDiag(latest)
       setPhase(latest.completed_at ? 'result' : 'take')
-    } catch {
+    } catch (e: unknown) {
       setDiag(null)
       setPhase('browse')
+      setError((e as Error)?.message || 'Could not load the diagnostic')
     }
+  }
+
+  const retryLoad = () => {
+    setError('')
+    setPhase('loading')
+    void loadLatest()
   }
 
   useEffect(() => { if (studentId && skillId) void loadLatest() }, [studentId, skillId])
@@ -1351,7 +1358,12 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
         )}
       </div>
 
-      {error && <div className="error learning-error">{error}</div>}
+      {error && (
+        <div className="error learning-error phase7-retry-notice" role="alert" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <span>{error}</span>
+          <button type="button" className="btn btn-sm btn-secondary" onClick={retryLoad}>Retry</button>
+        </div>
+      )}
 
       {phase === 'browse' && (
         <p className="section-copy">
