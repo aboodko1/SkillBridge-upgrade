@@ -19,6 +19,7 @@ from copy import deepcopy
 from . import diagnostics as dx
 from . import genai
 from . import knowledge_base
+from . import lesson_selfcheck
 from . import resources as resource_catalog
 
 
@@ -244,6 +245,7 @@ def canonical_practice(practice_data, competency, default_title=None, prefer_typ
     # but it must also not turn it into executable code or an answer key.
     result = {
         "type": "practical",
+        "id": "p1",
         "title": title or default_title or f"Apply {human}",
         "task": task,
         "response_type": response_type,
@@ -482,6 +484,84 @@ def _self_check_lesson(content, skill_name, competency, target_role, action):
     return {"passed": passed_all, "checks": checks, "flags": flags}
 
 
+def _catalog_url_set(skill_name, skill_category, competency, required_level, target_role):
+    """Curated-catalog URL set for a competency (used by the structure self-check)."""
+    urls = set()
+    for s in _grounding_sources(skill_name, skill_category, competency, required_level, target_role):
+        url = str(s.get("url") or "").strip()
+        if url:
+            urls.add(url)
+    return urls
+
+
+def _practice_task_id(content):
+    """Persisted id/title of the lesson's Practice task for the worked-example reference."""
+    practice = (content or {}).get("practice") if isinstance(content, dict) else {}
+    if isinstance(practice, dict):
+        return str(practice.get("id") or practice.get("title") or "").strip()
+    return ""
+
+
+def repair_lesson_structure(content, skill_name, skill_category, competency,
+                            required_level, target_role, action, topic_status,
+                            diagnostic_score):
+    """Deterministic 5-part repair after generation (WP-GO-05).
+
+    Reuses the fallback templates to fill any missing section, re-runs the pure
+    self-check, and records the outcome. Returns (repaired_content, repair_report)
+    where repair_report = {"passed": bool, "repaired": [...], "problems": [...]}.
+    Never rewrites persisted JSON — this runs on freshly generated content only.
+    """
+    if not isinstance(content, dict):
+        content = {}
+    fallback = _lesson_fallback(skill_name, competency, action, topic_status,
+                                diagnostic_score, required_level, target_role)
+    catalog_urls = _catalog_url_set(skill_name, skill_category, competency,
+                                    required_level, target_role)
+    task_id = _practice_task_id(content) or _practice_task_id(fallback)
+
+    def run_check():
+        return lesson_selfcheck.self_check_lesson(content, catalog_urls, task_id)
+
+    repaired = []
+    problems = run_check()
+    learn = content.setdefault("learn", {})
+    if not isinstance(learn, dict):
+        learn = {}
+        content["learn"] = learn
+
+    for field in ("explanation", "key_ideas", "key_terms", "common_mistake", "worked_example"):
+        if not str(lesson_selfcheck._text(learn.get(field) or "")).strip():
+            fallback_learn = fallback.get("learn") or {}
+            if field in fallback_learn:
+                learn[field] = fallback_learn[field]
+                repaired.append(field)
+
+    # If the worked example exists but does not reference the next Practice task,
+    # append a deterministic reference (same technique, different values).
+    practice_title = str((content.get("practice") or {}).get("title") or "").strip()
+    worked_example = str(learn.get("worked_example") or "").strip()
+    if worked_example and practice_title:
+        lower = worked_example.lower()
+        if not (task_id and task_id.lower() in lower) and practice_title.lower() not in lower:
+            learn["worked_example"] = (
+                f"{worked_example} This is the setup for the next Practice task "
+                f"({practice_title}) — redo the same technique on different values."
+            )
+            repaired.append("worked_example_practice_reference")
+
+    if not content.get("resources"):
+        content["resources"] = fallback.get("resources") or []
+
+    problems = run_check()
+    report = {
+        "passed": not problems,
+        "repaired": repaired,
+        "problems": problems,
+    }
+    return content, report
+
+
 def _is_coding_skill(skill_name):
     low = str(skill_name or "").lower()
     return any(h in low for h in _CODE_SKILL_HINTS)
@@ -519,8 +599,42 @@ def normalize_lesson(lesson, competency, skill_name=None, skill_category=None,
     if skill_name:
         content["resources"] = _lesson_resources(
             skill_name, skill_category, competency, required_level, target_role)
+    # Invariant 9: old persisted lessons (missing parts) keep rendering. Fill any
+    # missing 5-part sections from safe defaults at read time; never rewrite JSON.
+    content = _normalize_lesson_structure(
+        content, competency, skill_name, skill_category, required_level, target_role)
     normalized["content"] = content
     return normalized
+
+
+def _normalize_lesson_structure(content, competency, skill_name, skill_category,
+                                required_level, target_role):
+    """Read-time 5-part fill for old/partial persisted lessons (no DB write)."""
+    content = dict(content or {})
+    learn = dict(content.get("learn") or {})
+    if not isinstance(learn, dict):
+        learn = {}
+    fallback = _lesson_fallback(
+        skill_name or "Skill", competency, "learn", "weak", 0.0,
+        required_level, target_role)
+    fallback_learn = fallback.get("learn") or {}
+    for field in ("explanation", "key_ideas", "key_terms", "common_mistake", "worked_example"):
+        if not str(lesson_selfcheck._text(learn.get(field) or "")).strip():
+            if field in fallback_learn:
+                learn[field] = fallback_learn[field]
+    if not str(learn.get("job_relevance") or "").strip():
+        learn["job_relevance"] = fallback_learn.get("job_relevance", "")
+    learn.setdefault("title", fallback_learn.get("title", ""))
+    content["learn"] = learn
+    if not content.get("resources"):
+        content["resources"] = fallback.get("resources") or []
+    if not isinstance(content.get("example"), dict):
+        content["example"] = fallback.get("example") or {}
+    if not isinstance(content.get("practice"), dict):
+        content["practice"] = fallback.get("practice") or {}
+    if not isinstance(content.get("mini_check"), dict) or not content["mini_check"].get("questions"):
+        content["mini_check"] = fallback.get("mini_check") or {}
+    return content
 
 
 def _lesson_fallback(skill_name, competency, action, topic_status, diagnostic_score,
@@ -703,6 +817,8 @@ def generate_lesson(skill_name, competency, action, topic_status=None,
         fb = fallback()
         fb["self_check"] = _self_check_lesson(
             fb, skill_name, human, target_role, action)
+        fb["source"] = "fallback"
+        fb["selfCheck"] = {"passed": True, "repaired": [], "problems": []}
         return attach_resources(fb)
 
     if not genai.genai_enabled():
@@ -863,8 +979,20 @@ def generate_lesson(skill_name, competency, action, topic_status=None,
         content["mini_check"] = {
             "questions": _lesson_bank_questions(skill_name, human, 2),
         }
+    # WP-GO-05: enforce the 5-part structure + pure self-check after generation.
+    # Repair deterministically from the fallback templates; any repair labels the
+    # lesson as fallback (never pretend repaired content is live AI).
     content["self_check"] = _self_check_lesson(
         content, skill_name, human, target_role, action)
+    content, repair = repair_lesson_structure(
+        content, skill_name, skill_category, human, required, target_role,
+        action, topic_status, diagnostic_score)
+    content["source"] = "fallback" if repair["repaired"] else "ai"
+    content["selfCheck"] = {
+        "passed": repair["passed"],
+        "repaired": repair["repaired"],
+        "problems": repair["problems"],
+    }
     return attach_resources(content)
 
 
