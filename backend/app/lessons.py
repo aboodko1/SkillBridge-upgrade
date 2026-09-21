@@ -547,17 +547,18 @@ def _lesson_fallback(skill_name, competency, action, topic_status, diagnostic_sc
             f"You already have a working foundation in **{human}** for **{skill_name}**, but the "
             f"diagnostic showed some gaps. This is a focused review that sharpens the pieces you "
             f"may have missed and solidifies how {human.lower()} behaves under real, production-shaped "
-            f"conditions (targeted at {required} level work). {depth_note}"
+            f"conditions (targeted at {required} level work for a {role}). {depth_note}"
         )
         key_ideas = [
             f"Confirm the core mechanics of {human} in {skill_name}.",
             f"Revisit the pitfalls that commonly trip up practitioners at the {required} level.",
             f"Reinforce how {human} applies to a real deliverable for a {role}.",
+            f"Debug edge cases of {human} the way a {role} would on the job.",
         ]
         key_terms = {
             "pitfall": f"A common mistake that creeps in when applying {human} without care.",
             "best practice": f"The recommended, reliable way to use {human} in production {skill_name}.",
-            "context": f"The constraints of the real task that shape how {human} is used.",
+            "context": f"The constraints of the real task that shape how {human} is used by a {role}.",
         }
     else:
         depth_note = (
@@ -567,14 +568,14 @@ def _lesson_fallback(skill_name, competency, action, topic_status, diagnostic_sc
         explanation = (
             f"**{human}** is one of the building blocks of **{skill_name}**. It is the part of the "
             f"skill you will reach for whenever you need to {human.lower()} in a real task — for "
-            f"example, working at a {required} level on an actual project. This lesson builds it up "
+            f"example, working as a {role} at a {required} level on an actual project. This lesson builds it up "
             f"from the ground so you understand not just the syntax or commands, but why it works. "
             f"{depth_note}"
         )
         key_ideas = [
             f"What {human} is and the problem it solves in {skill_name}.",
             f"How {human} fits together with the rest of {skill_name}.",
-            f"The concrete steps to apply {human} in a real task.",
+            f"The concrete steps to apply {human} in a real task for a {role}.",
             f"Common mistakes to avoid when first using {human}.",
         ]
         key_terms = {
@@ -592,13 +593,14 @@ def _lesson_fallback(skill_name, competency, action, topic_status, diagnostic_sc
     common_mistake = (
         f"A common beginner mistake with {human} is assuming the syntax or a command is "
         f"correct without validating it against the actual tooling — interviewers and engineers "
-        f"probe for whether you can state how you know something worked."
+        f"probe for whether you can state how you know something worked. As a {role}, you will be "
+        f"expected to verify your work, not just produce a plausible answer."
     )
 
     worked_example = (
         f"Worked example tied to the practice to come: walk through one concrete {skill_name} "
-        f"case where you apply **{human}** at {required} level — name the action you take, the "
-        f"expected result, and how you would confirm it worked or debug it if it did not."
+        f"case where you, as a {role}, apply **{human}** at {required} level — name the action you "
+        f"take, the expected result, and how you would confirm it worked or debug it if it did not."
     )
 
     example = {
@@ -708,12 +710,27 @@ def generate_lesson(skill_name, competency, action, topic_status=None,
 
     grounding = _grounding_sources(skill_name, skill_category, human,
                                    required, target_role)
+    band = (topic_status or "").strip().lower()
+    if band == "mastered":
+        band = "developing"
     depth_directive = (
-        "DEPTH BRANCHING (weak vs developing — make these genuinely different):\n"
-        "  - WEAK topic (mode 'learn'): start from fundamentals, add more scaffolding and worked "
-        "example detail, explicitly address the likely beginner misconception.\n"
-        "  - DEVELOPING topic (mode 'review'): skip re-explaining the basics, zoom in on the specific "
-        "gap, and move quickly toward practice. Do NOT pad with basics the student already knows.\n"
+        "DEPTH BRANCHING — branch on the student's diagnostic band (weak vs developing):\n"
+        "  - WEAK (mode 'learn'): the topic is a genuine gap. Start from the fundamentals, add "
+        "more scaffolding and worked-example detail, use plain analogies, keep steps small, define "
+        "every term explicitly, and address the likely beginner misconception first. Teach one "
+        "concept at a time.\n"
+        "  - DEVELOPING (mode 'review'): the basics are in place. Skip re-explaining the "
+        "fundamentals; zoom in on the specific gap with edge cases, tradeoffs, debugging pitfalls, "
+        "and how the concept shows up in real day-to-day work. Do NOT pad with basics the student "
+        "already knows.\n"
+    )
+    role_anchor_directive = (
+        "ROLE ANCHORING — the student's target role is '"
+        f"{target_role or 'unspecified'}"
+        "'. Every Learn section (explanation, key_ideas, key_terms, common_mistake, worked_example) "
+        "must contain at least one sentence that names this exact target role and ties the concept "
+        "to what a working professional in that role actually does with it. Never invent or accept "
+        "a different role.\n\n"
     )
     system = (
         "You are a friendly but rigorous skills coach building a SINGLE focused topic lesson "
@@ -737,6 +754,7 @@ def generate_lesson(skill_name, competency, action, topic_status=None,
         "actually does with it day-to-day, and a common mistake beginners make (interviewers probe "
         "for these). Keep this concise, not a marketing paragraph.\n\n"
         f"{depth_directive}\n"
+        f"{role_anchor_directive}"
         "LEARN CONTENT — enforce this 5-part shape (adjust wording, keep structure):\n"
         "1. What & why: the concept and why it matters for the target role (field: explanation, "
         "plus a short 'job_relevance' string naming the target role).\n"

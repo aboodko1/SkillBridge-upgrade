@@ -2984,7 +2984,9 @@ def api_generate_lesson(student_id: int, skill_id: int, competency: str, request
         return _lesson_response(student_id, skill_id, path, path_item, existing)
     skill = models.get_skill(skill_id)
     skill_name = (skill.get("name") if skill else None) or f"Skill {skill_id}"
-    action = body.get("action") or _resolve_lesson_action(path_item)
+    # The mastery band (learn vs review) comes only from the persisted path item;
+    # a request body must never be able to spoof it.
+    action = _resolve_lesson_action(path_item)
     target_role = None
     student_profile = models.get_student(student_id)
     if student_profile:
