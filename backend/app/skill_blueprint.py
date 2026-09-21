@@ -67,6 +67,14 @@ BLUEPRINT = {
         "Intermediate": ["Python Data Structures"],
         "Advanced": [],
     },
+    # Curated vertical slice for Agentic AI: nine authored competencies in
+    # ``knowledge_base.agentic_topics``. The blueprint is deliberately narrow so
+    # the diagnostic and path only surface topics the trusted catalog can serve.
+    "agentic ai": {
+        "Beginner": ["Tool Use & Function Calling", "Model Context Protocol (MCP)"],
+        "Intermediate": ["Retrieval-Augmented Generation (RAG)", "Multi-Agent Systems", "Agent Memory"],
+        "Advanced": ["Planning & Task Decomposition", "Agent Evaluation & Guardrails", "Context Engineering", "Agent Security & Prompt Injection"],
+    },
 }
 
 _KNOWN_SKILLS = set(BLUEPRINT)

@@ -8,6 +8,8 @@ shape without pretending that their content has shipped.
 from copy import deepcopy
 import re
 
+from . import agentic_topics
+
 
 KNOWLEDGE_BASE_VERSION = "cs-kb-v2"
 
@@ -4761,6 +4763,25 @@ def complete_lesson(skill_name, competency):
         return deepcopy(DOCKER_SECURITY_SECRETS)
     if _key(skill_name) in DOCKER_ORCHESTRATION_BASICS["skill_aliases"] and _key(competency) in ("orchestration basics",):
         return deepcopy(DOCKER_ORCHESTRATION_BASICS)
+    if _key(skill_name) in agentic_topics.AGENTIC_SKILL_ALIASES:
+        if _key(competency) in ("tool use & function calling", "tool use", "function calling"):
+            return deepcopy(agentic_topics.AGENTIC_TOOL_USE)
+        if _key(competency) in ("model context protocol (mcp)", "model context protocol", "mcp"):
+            return deepcopy(agentic_topics.AGENTIC_MCP)
+        if _key(competency) in ("retrieval-augmented generation (rag)", "retrieval-augmented generation", "rag"):
+            return deepcopy(agentic_topics.AGENTIC_RAG)
+        if _key(competency) in ("multi-agent systems", "multi-agent", "multi agent"):
+            return deepcopy(agentic_topics.AGENTIC_MULTI_AGENT)
+        if _key(competency) in ("agent memory",):
+            return deepcopy(agentic_topics.AGENTIC_MEMORY)
+        if _key(competency) in ("planning & task decomposition", "planning", "task decomposition"):
+            return deepcopy(agentic_topics.AGENTIC_PLANNING)
+        if _key(competency) in ("agent evaluation & guardrails", "agent evaluation", "guardrails"):
+            return deepcopy(agentic_topics.AGENTIC_EVALUATION)
+        if _key(competency) in ("context engineering",):
+            return deepcopy(agentic_topics.AGENTIC_CONTEXT_ENGINEERING)
+        if _key(competency) in ("agent security & prompt injection", "agent security", "prompt injection"):
+            return deepcopy(agentic_topics.AGENTIC_SECURITY)
     return None
 
 
