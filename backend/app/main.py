@@ -681,6 +681,12 @@ def api_list_universities():
     return models.list_universities()
 
 
+@app.get("/healthz")
+def api_healthz():
+    """Host health check — no auth, no DB dependency."""
+    return {"status": "ok"}
+
+
 @app.get("/api/locations")
 def api_list_locations():
     """Countries with their cities (public reference data for the cascading

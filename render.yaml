@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: skillbridge
+    runtime: python
+    plan: free
+    buildCommand: bash scripts/render-build.sh
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SKILLBRIDGE_OPENAI_MODEL
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: NODE_VERSION
+        value: 20.0.0
