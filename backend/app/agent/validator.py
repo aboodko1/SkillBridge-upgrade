@@ -225,8 +225,9 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
         "source": "live" | "fallback",
       }
     On unknown role / missing ground truth, returns {"error": "role_not_found"}
-    without raising. On persistent malformed LLM output, returns
-    {"error": "validation_failed"}.
+    without raising. On persistent LLM failure (malformed output or a raising
+    provider), falls through to the deterministic fallback and returns a
+    structured result labelled "fallback".
     """
     try:
         role, ground_truth = load_role(role_id)
@@ -261,7 +262,8 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
     system = _validator_system(role_name)
     user = _validator_user(draft_md, student_cv, role_name, ground_truth_json)
 
-    for attempt in range(2):  # one retry on malformed output
+    llm_failed_reason = None
+    for attempt in range(2):
         try:
             raw = genai.complete(system, user, max_tokens=1400, timeout=90)
             violations = _parse_violations(raw)
@@ -273,8 +275,28 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
                 "sources": sources,
                 "source": "live",
             }
-        except Exception:
+        except Exception as exc:
+            llm_failed_reason = str(exc)
+            import logging
+            logging.getLogger("skillbridge").warning(
+                "validator LLM attempt %d failed: %s", attempt + 1, exc
+            )
             if attempt == 0:
                 continue
-            return {"error": "validation_failed"}
-    return {"error": "validation_failed"}
+            break
+
+    # Live LLM failed — use deterministic fallback so endpoint
+    # always returns a structured result.
+    violations, covered = _deterministic_violations(draft_md, student_cv, ground_truth)
+    coverage, personalization = _coverage_and_personalization(violations)
+    if not violations:
+        coverage = 1.0
+    return {
+        "coverage_score": round(coverage, 3),
+        "personalization_score": round(personalization, 3),
+        "violations": violations,
+        "sources": sources,
+        "source": "fallback",
+        "deterministic": covered,
+        "warning": f"LLM unavailable ({llm_failed_reason}); deterministic validation used.",
+    }

@@ -73,7 +73,30 @@ def test_validate_handles_malformed_llm_json(monkeypatch):
 def test_validate_returns_error_on_persistent_malformed(monkeypatch):
     monkeypatch.setattr(genai, "complete", lambda *a, **k: "still not json")
     result = _run(validator.validate_roadmap(DRAFT, CV, "soc_analyst"))
-    assert result.get("error") == "validation_failed"
+    # Malformed output now falls through to the deterministic fallback rather
+    # than surfacing {"error": "validation_failed"}.
+    assert result.get("source") == "fallback"
+    assert isinstance(result.get("coverage_score"), float)
+    assert "warning" in result
+
+
+def test_validator_falls_back_on_llm_failure(monkeypatch):
+    """A raising LLM provider must not surface an error; it falls back to the
+    deterministic rule check and labels the result 'fallback'."""
+    calls = {"n": 0}
+
+    def boom(*args, **kwargs):
+        calls["n"] += 1
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(genai, "complete", boom)
+    result = _run(validator.validate_roadmap(DRAFT, CV, "soc_analyst"))
+    assert calls["n"] == 2  # one retry, then fallback
+    assert result.get("source") == "fallback"
+    assert isinstance(result.get("coverage_score"), float)
+    assert isinstance(result.get("personalization_score"), float)
+    assert isinstance(result.get("violations"), list)
+    assert "LLM unavailable" in (result.get("warning") or "")
 
 
 def test_apply_corrections_only_uses_failed_checks(monkeypatch):
