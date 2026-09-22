@@ -101,6 +101,41 @@ _NON_SOFTWARE_PHASE_SPECS = [
     _PHASE_SPECS[10],
 ]
 
+# SOC Analyst-specific phase titles + goals. The generic software template
+# ("Core programming toolkit — Develops: MITRE ATT&CK") is meaningless for a
+# Tier-1 security operations role, so the roadmap uses these phases instead.
+_SOC_PHASE_SPECS = [
+    ("Networking & OS Foundations",
+     "A {role} works from network and OS fundamentals: how traffic moves, "
+     "what normal behaviour looks like, and how Windows and Linux systems "
+     "produce the logs you will monitor every shift."),
+    ("Log Analysis & SIEM Fundamentals",
+     "Learn how a {role} reads raw logs, parses events, and drives a SIEM to "
+     "query and correlate security events instead of drowning in alert noise."),
+    ("Threat Detection & Intelligence",
+     "Study the threats a {role} defends against — malware, intrusions, and "
+     "adversary tradecraft — and how threat intelligence feeds detection and "
+     "triage."),
+    ("Incident Response & Triage",
+     "Practice how a {role} triages and prioritises incidents, writes clear "
+     "reports, and follows a disciplined incident-handling methodology."),
+    ("MITRE ATT&CK & Detection Engineering",
+     "Map observed behaviour to MITRE ATT&CK techniques and build detections "
+     "that catch real adversary activity rather than just alerting on noise."),
+    ("SOAR & SOC Automation",
+     "Automate the repetitive parts of a {role} shift — enrichment, alert "
+     "correlation, and response playbooks — so you can focus on what needs a "
+     "human."),
+    _PHASE_SPECS[6],
+    ("Communication & Escalation",
+     "A {role} does not stay silent: communicate findings to stakeholders, "
+     "escalate incidents to the right level, and keep ticketing case records "
+     "that others can act on."),
+    _PHASE_SPECS[8],
+    _PHASE_SPECS[9],
+    _PHASE_SPECS[10],
+]
+
 # Which phase(s) map to which skill category, and their display grouping.
 # ``primary`` is the phase a category most belongs to; ``secondary`` lets an
 # abundant category spill into neighbouring phases so a role whose skills all
@@ -250,6 +285,15 @@ def _deliverables(idx, categories, cat_skills):
         "Complete the actions described in this phase and confirm the checkpoint below."]
 
 
+def _is_soc_analyst(role):
+    """True only for the SOC Analyst role (matched by role key or title)."""
+    role = role or {}
+    key = str(role.get("role_key") or role.get("id") or "").lower()
+    title = str(role.get("title") or "").lower()
+    return ("soc_analyst" in key or "soc analyst" in title
+            or "security operations center" in title)
+
+
 def _uses_software_roadmap(role_title, cat_skills):
     title = (role_title or "").lower()
     if any(word in title for word in (
@@ -337,7 +381,10 @@ def build_career_roadmap(student, role):
     # whole journey is populated (not just the phases with a matching category).
     assigned = _assign_phases(cat_skills)
     software_roadmap = _uses_software_roadmap(role_title, cat_skills)
-    phase_specs = _PHASE_SPECS if software_roadmap else _NON_SOFTWARE_PHASE_SPECS
+    if _is_soc_analyst(role):
+        phase_specs = _SOC_PHASE_SPECS
+    else:
+        phase_specs = _PHASE_SPECS if software_roadmap else _NON_SOFTWARE_PHASE_SPECS
 
     phases = []
     for idx, (title, goal_template) in enumerate(phase_specs):

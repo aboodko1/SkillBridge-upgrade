@@ -237,3 +237,24 @@ def test_fallback_personalization_matches_live_on_bad_draft(monkeypatch):
     fb_checks = {v["check_name"] for v in fallback["violations"]}
     assert "CV_REDUNDANCY" in fb_checks
     assert "LEVEL_APPROPRIATENESS" in fb_checks
+
+
+def test_fallback_coverage_matches_covered_fraction(monkeypatch):
+    """The fallback coverage_score must reflect the fraction of competencies
+    actually present in the draft, not 0.0 just because FRAMEWORK_COVERAGE
+    fails. This draft covers ~78% of the SOC ground-truth competencies."""
+    partial_draft = ("## Roadmap\n"
+                     "computer cybersecurity vulnerabilities communication categories "
+                     "vulnerability malicious intrusion correlation tools types methods "
+                     "sources capabilities interpret center analyzing tools querying "
+                     "writing triaging escalating investigate scripting performing identify clearly")
+    monkeypatch.setattr(genai, "genai_enabled", lambda: False)
+    result = _run(validator.validate_roadmap(partial_draft, "", "soc_analyst"))
+    assert result["source"] == "fallback"
+    # The coverage_score is the deterministic covered fraction, not 0.0.
+    assert 0.75 <= result["coverage_score"] <= 0.85
+    # And it matches the deterministic field reported to the caller.
+    assert abs(result["coverage_score"] - result["deterministic"]) < 0.001
+    # FRAMEWORK_COVERAGE still failed (partial coverage), so violations exist.
+    checks = {v["check_name"] for v in result["violations"]}
+    assert "FRAMEWORK_COVERAGE" in checks

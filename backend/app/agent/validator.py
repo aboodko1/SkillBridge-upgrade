@@ -361,9 +361,13 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
 
     if not genai.genai_enabled():
         violations, covered = _deterministic_violations(draft_md, student_cv, ground_truth)
-        coverage, personalization = _coverage_and_personalization(violations)
+        # coverage = fraction of competencies present in the roadmap (computed
+        # by the deterministic check, not re-derived from the violation list,
+        # which is always 0.0 while FRAMEWORK_COVERAGE fails).
+        coverage = covered
         if not violations:
             coverage = 1.0
+        _, personalization = _coverage_and_personalization(violations)
         return {
             "coverage_score": round(coverage, 3),
             "personalization_score": round(personalization, 3),
@@ -401,9 +405,13 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
     # Live LLM failed — use deterministic fallback so endpoint
     # always returns a structured result.
     violations, covered = _deterministic_violations(draft_md, student_cv, ground_truth)
-    coverage, personalization = _coverage_and_personalization(violations)
+    # coverage = fraction of competencies present in the roadmap (computed
+    # by the deterministic check, not re-derived from the violation list,
+    # which is always 0.0 while FRAMEWORK_COVERAGE fails).
+    coverage = covered
     if not violations:
         coverage = 1.0
+    _, personalization = _coverage_and_personalization(violations)
     return {
         "coverage_score": round(coverage, 3),
         "personalization_score": round(personalization, 3),
