@@ -1034,6 +1034,35 @@ textarea.free-text:focus { outline: 2px solid var(--sb-indigo); outline-offset: 
 .cr-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .cr-card .cr-sub { margin: 10px 0 16px; }
 .cr-phases { display: flex; flex-direction: column; gap: 8px; }
+
+/* Verification Report panel (agentic roadmap validation) */
+.vr-panel {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vr-head strong { font-size: 13.5px; }
+.vr-scores { display: flex; gap: 18px; }
+.vr-score { display: flex; align-items: baseline; gap: 6px; }
+.vr-score span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate-500); }
+.vr-score b { font-size: 15px; color: var(--sb-midnight-ink); }
+.vr-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vr-checks li { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--slate-700); flex-wrap: wrap; }
+.vr-badge { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; }
+.vr-badge.pass { background: var(--green); color: #fff; }
+.vr-badge.fail { background: var(--amber); color: #fff; }
+.vr-check-name { font-weight: 700; color: var(--sb-midnight-ink); }
+.vr-evidence { flex: 1 1 100%; color: var(--slate-600); }
+.vr-notice { margin: 2px 0 0; font-size: 12.5px; color: var(--green); }
+.vr-revised { border-top: 1px solid var(--slate-100); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.vr-revised strong { font-size: 12.5px; }
+.vr-footer { margin: 2px 0 0; }
 .cr-phase { border: 1px solid var(--slate-200); border-radius: var(--radius-sm); overflow: hidden; background: var(--white); }
 .cr-phase-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; background: none; border: none; cursor: pointer; text-align: left; font: inherit; color: var(--sb-midnight-ink); }
 .cr-phase-head:hover { background: var(--slate-50); }

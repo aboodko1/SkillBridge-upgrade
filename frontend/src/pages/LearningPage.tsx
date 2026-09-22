@@ -8,7 +8,7 @@ import type {
   GeneratedDiagnostic, FinalAssessmentStatus, LearningAgentActionType, LearningAgentDecision,
   LearningItem, LearningResource, Lesson, LessonPractice, PersonalizedPath, PersonalizedPathItem,
   PersonalizedPathResponse, PracticeAttempt, ScenarioLibrary, ScenarioCard, SkillGap, Student,
-  TopicResult,
+  TopicResult, RoadmapValidation, RoadmapViolation,
 } from '../lib/types'
 import {
   CareerProgress,
@@ -2332,6 +2332,114 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
   )
 }
 
+function roadmapToMarkdown(map: CareerRoadmap): string {
+  const lines: string[] = []
+  if (map.summary) { lines.push(map.summary, '') }
+  ;(map.phases || []).forEach((phase) => {
+    lines.push(`## Phase ${phase.phase}: ${phase.title}`)
+    if (phase.goal) lines.push(`Goal: ${phase.goal}`)
+    const names = (phase.skills || []).map((s) => s.name).filter(Boolean)
+    if (names.length) lines.push(`Develops: ${names.join(', ')}`)
+    ;(Array.isArray(phase.deliverables) ? phase.deliverables : []).forEach((d) => {
+      lines.push(`- ${String(d ?? '')}`)
+    })
+    lines.push('')
+  })
+  return lines.join('\n').trim()
+}
+
+function VerificationReport({ studentId, map }: { studentId: number; map: CareerRoadmap }) {
+  const [report, setReport] = useState<RoadmapValidation | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [revised, setRevised] = useState<string | null>(null)
+  const [notice, setNotice] = useState('')
+  const [applying, setApplying] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    setReport(null)
+    setRevised(null)
+    setNotice('')
+    const draft = roadmapToMarkdown(map)
+    api.validateRoadmap({ draft_roadmap: draft, student_cv: '', role_id: 'soc_analyst' })
+      .then((r) => { if (alive) setReport(r) })
+      .catch(() => { if (alive) setReport(null) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [studentId, map])
+
+  if (!report || report.error) {
+    return loading ? (
+      <div className="vr-panel" role="status">
+        <strong>Verification Report</strong>
+        <span className="muted small">Validating against NIST NICE v2.1 and MITRE ATT&amp;CK v18…</span>
+      </div>
+    ) : (
+      <div className="vr-panel">
+        <strong>Verification Report</strong>
+        <span className="muted small">Verification unavailable for this roadmap.</span>
+      </div>
+    )
+  }
+
+  const failed = (report.violations || []).filter((v) => !v.passed)
+  const coveragePct = Math.round((report.coverage_score ?? 0) * 100)
+  const personalizationPct = Math.round((report.personalization_score ?? 0) * 100)
+
+  const apply = async () => {
+    setApplying(true)
+    setNotice('')
+    try {
+      const res = await api.applyCorrections({
+        draft_roadmap: roadmapToMarkdown(map),
+        violations: report.violations || [],
+      })
+      setRevised(res.revised_roadmap)
+      setNotice(`Roadmap updated — ${failed.length} corrections applied.`)
+    } catch {
+      setNotice('Could not apply corrections. Please try again.')
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return (
+    <div className="vr-panel">
+      <div className="vr-head">
+        <strong>Verification Report</strong>
+        {report.source === 'fallback' && <span className="vr-badge">fallback</span>}
+      </div>
+      <div className="vr-scores">
+        <div className="vr-score"><span>Coverage</span><b>{coveragePct}%</b></div>
+        <div className="vr-score"><span>Personalization</span><b>{personalizationPct}%</b></div>
+      </div>
+      <ul className="vr-checks">
+        {(report.violations || []).map((v, i) => (
+          <li key={i} className={v.passed ? 'pass' : 'fail'}>
+            <span className={`vr-badge ${v.passed ? 'pass' : 'fail'}`}>{v.passed ? 'PASS' : 'FAIL'}</span>
+            <span className="vr-check-name">{v.check_name || 'CHECK'}</span>
+            <span className="vr-evidence">{v.evidence}</span>
+          </li>
+        ))}
+      </ul>
+      {failed.length > 0 && (
+        <button type="button" className="btn btn-sm btn-primary" onClick={apply} disabled={applying}>
+          {applying ? 'Applying…' : 'Apply Corrections'}
+        </button>
+      )}
+      {notice && <p className="vr-notice" role="status">{notice}</p>}
+      {revised !== null && (
+        <div className="vr-revised">
+          <strong>Revised Roadmap</strong>
+          <div className="md-body"><SafeMarkdown>{revised}</SafeMarkdown></div>
+        </div>
+      )}
+      <p className="vr-footer small muted">Verified against NIST NICE v2.1 and MITRE ATT&amp;CK v18</p>
+    </div>
+  )
+}
+
 function CareerRoadmapCard({ studentId, roleTitle }: { studentId: number; roleTitle?: string }) {
   const { applyCopilot } = useApp()
   const [map, setMap] = useState<CareerRoadmap | null>(null)
@@ -2361,6 +2469,7 @@ function CareerRoadmapCard({ studentId, roleTitle }: { studentId: number; roleTi
         meta={`${map.phase_count ?? map.phases.length} phases - ${map.role_title || roleTitle || 'your target role'}`}
       />
       <p className="section-copy">{map.summary}</p>
+      <VerificationReport studentId={studentId} map={map} />
       <div className="cr-phases">
         {map.phases.map((phase) => {
           const open = openPhase === phase?.phase

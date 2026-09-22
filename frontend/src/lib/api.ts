@@ -14,6 +14,7 @@ import type {
   CopilotConfigResponse, CopilotOnboardingStateResponse, CopilotOnboardingSubmit, CopilotOnboardingResponse,
   StudentTourState, TourStateUpdate,
   MentorUiState, MentorUiUpdate,
+  RoadmapValidation, RoadmapViolation,
 } from './types'
 import type { AssessmentIntegrityEvent } from './webcamIntegrity'
 
@@ -367,6 +368,12 @@ export const api = {
 
   // ---- full career roadmap
   careerRoadmap: (studentId: number) => req<CareerRoadmap>(`/api/students/${studentId}/career-roadmap`),
+
+  // ---- agentic roadmap validation (wraps the roadmap generator)
+  validateRoadmap: (payload: { draft_roadmap: string; student_cv: string; role_id: string }) =>
+    req<RoadmapValidation>(`/api/agent/validate-roadmap`, { method: 'POST', body: JSON.stringify(payload) }),
+  applyCorrections: (payload: { draft_roadmap: string; violations: RoadmapViolation[] }) =>
+    req<{ revised_roadmap: string }>(`/api/agent/apply-corrections`, { method: 'POST', body: JSON.stringify(payload) }),
 
   // ---- practice scenarios
   scenarios: (studentId: number) => req<ScenarioLibrary>(`/api/students/${studentId}/scenarios`),

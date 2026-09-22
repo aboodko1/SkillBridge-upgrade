@@ -915,6 +915,22 @@ export interface CareerRoadmap {
   phases: CareerRoadmapPhase[]
 }
 
+export interface RoadmapViolation {
+  check_name: string
+  passed: boolean
+  evidence: string
+  suggested_fix: string
+}
+
+export interface RoadmapValidation {
+  coverage_score: number
+  personalization_score: number
+  violations: RoadmapViolation[]
+  sources?: string[]
+  source?: 'live' | 'fallback'
+  error?: string
+}
+
 // ------------------------------------------------------------------ learning diagnostic
 
 export type DiagnosticQuestionType = 'mcq' | 'free_text'
