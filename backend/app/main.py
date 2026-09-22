@@ -88,6 +88,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Agentic roadmap verification wrapper (additive; does not touch existing routes).
+from .routes.agent import router as agent_router
+app.include_router(agent_router)
+
 # ------------------------------------------------------------------ request ids
 # Every request gets a short id so support can correlate a user-facing error with
 # a backend log line. The id travels as a response header and (additively, next
