@@ -49,7 +49,7 @@ def test_validate_returns_coverage_score(monkeypatch):
     assert 0.0 <= result["personalization_score"] <= 1.0
     assert result["source"] == "live"
     assert len(result["violations"]) == 6
-    assert result["sources"] == ["NIST NICE v2.1 work role 511", "MITRE ATT&CK v18"]
+    assert result["sources"] == ["NIST NICE v2.1 work role 511", "MITRE ATT&CK Enterprise"]
 
 
 def test_validate_handles_malformed_llm_json(monkeypatch):

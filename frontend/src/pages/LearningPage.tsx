@@ -2373,7 +2373,7 @@ function VerificationReport({ studentId, map }: { studentId: number; map: Career
     return loading ? (
       <div className="vr-panel" role="status">
         <strong>Verification Report</strong>
-        <span className="muted small">Validating against NIST NICE v2.1 and MITRE ATT&amp;CK v18…</span>
+        <span className="muted small">Validating against NIST NICE v2.1 and MITRE ATT&amp;CK Enterprise…</span>
       </div>
     ) : (
       <div className="vr-panel">
@@ -2435,7 +2435,7 @@ function VerificationReport({ studentId, map }: { studentId: number; map: Career
           <div className="md-body"><SafeMarkdown>{revised}</SafeMarkdown></div>
         </div>
       )}
-      <p className="vr-footer small muted">Verified against NIST NICE v2.1 and MITRE ATT&amp;CK v18</p>
+      <p className="vr-footer small muted">Verified against NIST NICE v2.1 and MITRE ATT&amp;CK Enterprise</p>
     </div>
   )
 }

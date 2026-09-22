@@ -241,7 +241,7 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
         if name == "nice_soc_analyst.json":
             sources.append("NIST NICE v2.1 work role 511")
         elif name == "mitre_soc_subset.json":
-            sources.append("MITRE ATT&CK v18")
+            sources.append("MITRE ATT&CK Enterprise")
     sources = sources or ["curated ground truth"]
 
     if not genai.genai_enabled():
