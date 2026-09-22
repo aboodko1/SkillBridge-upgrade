@@ -229,18 +229,88 @@ def _parse_llm_json(raw):
     return out
 
 
-# Skills the deterministic fallback can spot in a CV (keyword-level only).
-# Used to emit CV_REDUNDANCY / LEVEL_APPROPRIATENESS findings without a model
-# so the fallback's personalization score tracks the live path.
-_CV_SKILL_TERMS = [
-    "python", "java", "javascript", "sql", "networking", "network",
-    "linux", "windows", "siem", "splunk", "elk", "wireshark", "scapy",
-    "ticketing", "triage", "threat", "mitre", "docker", "cloud", "powershell",
-    "bash", "communication", "presentation", "teaching",
-]
+# Skill evidence map for the deterministic fallback: skill key ->
+# (listed terms, demonstrated-evidence terms). A skill is:
+#   DEMONSTRATED  -> a listed term AND an evidence term appear in the CV
+#                    (e.g. "python" + "sql injection detector").
+#   LISTED        -> only a listed term appears (e.g. "networking basics",
+#                    "penetration testing", SIEM named as a tool with no
+#                    querying artifact).
+#   UNKNOWN       -> no listed term appears.
+# The roadmap is penalised when it frames a DEMONSTRATED/LISTED skill at
+# beginner level, and flagged CV_REDUNDANCY when it re-teaches a DEMONSTRATED
+# skill from scratch.
+_CV_SKILL_EVIDENCE = {
+    "python": (("python",), ("sql", "detector", "scapy", "sniffer", "script",
+                             "automation", "payload", "years", "experience", "noc")),
+    "java": (("java",), ("project", "chatbot", "swing", "reservation", "tracker",
+                         "oop", "years", "experience")),
+    "communication": (("communication", "teaching", "presentation", "explain",
+                        "soft skills"), ("teaching", "presentation", "peers",
+                                         "explain", "present", "mentor")),
+    "networking": (("networking", "network"), ("packet", "sniffer", "scapy",
+                                                "traffic", "years", "experience", "noc")),
+    "siem querying": (("siem", "splunk", "elk"), ("query", "search", "correlate",
+                                                   "dashboard", "rule")),
+    "incident response": (("incident response", "incident handling", "incident"), ()),
+    "triage": (("triage", "triaging"), ()),
+    "escalation": (("escalat",), ()),
+    "mitre": (("mitre", "att&ck", "attack"), ()),
+    "ticketing": (("ticket", "case-management", "case management"), ()),
+    "threat intelligence": (("threat intelligence", "threat intel"), ()),
+}
 
 _BEGINNER_MARKERS = ("basics", "beginner", "introduction", "intro",
                      "fundamentals", "learn")
+
+
+def _classify_cv_skills(student_cv):
+    """Classify each tracked skill against the CV: DEMONSTRATED / LISTED /
+    UNKNOWN (see ``_CV_SKILL_EVIDENCE`` for the definitions)."""
+    cv = (student_cv or "").lower()
+    out = {}
+    for skill, (listed_terms, evidence_terms) in _CV_SKILL_EVIDENCE.items():
+        listed = any(t in cv for t in listed_terms)
+        if not listed:
+            out[skill] = "UNKNOWN"
+        elif any(t in cv for t in evidence_terms):
+            out[skill] = "DEMONSTRATED"
+        else:
+            out[skill] = "LISTED"
+    return out
+
+
+def _cv_personalization(draft_md, student_cv):
+    """Personalization for the fallback: fraction of the tracked competency set
+    the roadmap handles correctly against the CV evidence.
+
+    The tracked set is every skill in ``_CV_SKILL_EVIDENCE`` (the SOC-relevant
+    competency groups). ``known`` = DEMONSTRATED + LISTED skills found in the
+    CV; the remaining tracked skills are UNKNOWN and still require teaching.
+    A known skill counts as handled when the roadmap does not frame it at
+    beginner level (omission of a DEMONSTRATED skill is fine — it needs no
+    re-teaching; a LISTED skill must still appear as a module).
+
+    Denominator = all tracked skills, so a roadmap can only be "personalized"
+    for the CV-known portion — the CV-unknown modules are generic and do not
+    inflate the score. An empty CV yields 1.0 (nothing to personalize against).
+    """
+    classif = _classify_cv_skills(student_cv)
+    if all(st == "UNKNOWN" for st in classif.values()):
+        return 1.0
+    body = draft_md.lower()
+    handled = 0
+    for skill, status in classif.items():
+        listed_terms = _CV_SKILL_EVIDENCE[skill][0]
+        mentioned = any(t in body for t in listed_terms)
+        framed_beginner = mentioned and any(m in body for m in _BEGINNER_MARKERS)
+        if status == "DEMONSTRATED":
+            if not framed_beginner:
+                handled += 1
+        elif status == "LISTED":
+            if mentioned and not framed_beginner:
+                handled += 1
+    return max(0.0, min(1.0, handled / len(classif)))
 
 
 def _deterministic_violations(draft_md, student_cv, ground_truth):
@@ -289,26 +359,33 @@ def _deterministic_violations(draft_md, student_cv, ground_truth):
         })
 
     # CV-aware checks (deterministic mirror of the live CV_REDUNDANCY and
-    # LEVEL_APPROPRIATENESS checks). Keyword overlap is coarse on purpose: the
-    # fallback should be conservative, not imaginative.
-    cv = (student_cv or "").lower()
-    demonstrated = [t for t in _CV_SKILL_TERMS if t in cv]
-    re_taught = [t for t in demonstrated if t in body]
+    # LEVEL_APPROPRIATENESS checks). The classifier distinguishes DEMONSTRATED
+    # (artifact evidence in the CV), LISTED (named but no artifact), and
+    # UNKNOWN skills so the fallback's personalization tracks the CV.
+    classif = _classify_cv_skills(student_cv)
+    demonstrated = [s for s, st in classif.items() if st == "DEMONSTRATED"]
+    listed = [s for s, st in classif.items() if st == "LISTED"]
+    re_taught = [s for s in demonstrated if s in body]
     if re_taught:
         violations.append({
             "check_name": "CV_REDUNDANCY",
             "passed": False,
-            "evidence": "Roadmap teaches skills the CV already demonstrates: "
+            "evidence": "Roadmap re-teaches skills the CV demonstrates: "
                         + ", ".join(re_taught),
             "suggested_fix": "Replace these with assessment-first or advanced modules.",
         })
-        if any(m in body for m in _BEGINNER_MARKERS):
-            violations.append({
-                "check_name": "LEVEL_APPROPRIATENESS",
-                "passed": False,
-                "evidence": "Roadmap frames a demonstrated skill at beginner level.",
-                "suggested_fix": "Raise the difficulty to match the CV's demonstrated level.",
-            })
+    # Beginner framing of a demonstrated skill is wrong level; a listed skill
+    # (e.g. SIEM querying when the CV only shows log generation) must stay an
+    # assessment-first module, never a beginner recap.
+    beginner_framed = [s for s in demonstrated + listed if s in body]
+    if beginner_framed and any(m in body for m in _BEGINNER_MARKERS):
+        violations.append({
+            "check_name": "LEVEL_APPROPRIATENESS",
+            "passed": False,
+            "evidence": "Roadmap frames a CV-relevant skill at beginner level: "
+                        + ", ".join(beginner_framed),
+            "suggested_fix": "Raise the difficulty to match the CV's demonstrated level.",
+        })
     return violations, (covered / len(competencies)) if competencies else 0.0
 
 
@@ -367,7 +444,7 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
         coverage = covered
         if not violations:
             coverage = 1.0
-        _, personalization = _coverage_and_personalization(violations)
+        personalization = _cv_personalization(draft_md, student_cv)
         return {
             "coverage_score": round(coverage, 3),
             "personalization_score": round(personalization, 3),
@@ -411,7 +488,7 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
     coverage = covered
     if not violations:
         coverage = 1.0
-    _, personalization = _coverage_and_personalization(violations)
+    personalization = _cv_personalization(draft_md, student_cv)
     return {
         "coverage_score": round(coverage, 3),
         "personalization_score": round(personalization, 3),

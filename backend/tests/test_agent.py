@@ -258,3 +258,82 @@ def test_fallback_coverage_matches_covered_fraction(monkeypatch):
     # FRAMEWORK_COVERAGE still failed (partial coverage), so violations exist.
     checks = {v["check_name"] for v in result["violations"]}
     assert "FRAMEWORK_COVERAGE" in checks
+
+
+KHALED_CV = (
+    "Khaled — Third-year BSc Cybersecurity student, Future University in Egypt, GPA 3.07.\n"
+    "Programming: Python, Java.\n"
+    "Technical skills: Cybersecurity fundamentals, penetration testing, networking basics.\n"
+    "Cybersecurity internship at UneeQ Interns:\n"
+    "- Python SQL Injection Detector: automated detection of vulnerable login endpoints.\n"
+    "- Security Log Generator: simulated real-time event logs for SIEM systems ELK and Splunk.\n"
+    "- DoS Detection System: live packet sniffer built with Scapy.\n"
+    "Java Development Intern at Code Alpha:\n"
+    "- Student Grade Tracker (console, arrays/ArrayLists)\n"
+    "- AI Chatbot (Java Swing, basic NLP)\n"
+    "- Hotel Reservation System (OOP, file I/O)\n"
+    "Teaching and soft skills: explaining complex concepts to peers, debugging help, "
+    "presentation skills, team collaboration."
+)
+
+
+def test_classify_cv_skills_khaled_cv():
+    """The real student CV demonstrates Python/Java/communication, only LISTs
+    SIEM (log generation, not querying), and is UNKNOWN for the rest."""
+    classif = validator._classify_cv_skills(KHALED_CV)
+    assert classif["python"] == "DEMONSTRATED"
+    assert classif["java"] == "DEMONSTRATED"
+    assert classif["communication"] == "DEMONSTRATED"
+    # SIEM is LISTED, never DEMONSTRATED — the CV shows log GENERATION only.
+    assert classif["siem querying"] == "LISTED"
+    for skill in ("incident response", "triage", "escalation", "mitre",
+                  "ticketing", "threat intelligence"):
+        assert classif[skill] == "UNKNOWN"
+
+
+def test_khaled_cv_personalization_lands_in_band(monkeypatch):
+    """FIX 3 — the personalization score for the real student CV must land
+    between 0.40 and 0.55: not too generous (> 0.7) and not ignoring the CV
+    evidence (< 0.2). The CV demonstrates Python/Java/communication/networking
+    and only lists SIEM, so a correct roadmap personalizes those and keeps the
+    rest as generic modules. Uses the deterministic fallback (provider off)."""
+    soc_roadmap = (
+        "## Phase 1: Networking & OS Foundations\n"
+        "Master networking concepts, protocols, and network security. Build on "
+        "Windows and Linux OS knowledge and command-line tools.\n"
+        "## Phase 2: Log Analysis & SIEM Querying\n"
+        "Query and search security events in a SIEM and correlate events.\n"
+        "## Phase 3: Threat Detection & Intelligence\n"
+        "Study cyber threats, vulnerabilities, and threat intelligence sources.\n"
+        "## Phase 4: Incident Response & Triage\n"
+        "Triage and prioritize security incidents and write incident reports.\n"
+        "## Phase 5: MITRE ATT&CK & Detection Engineering\n"
+        "Map observed behavior to MITRE ATT&CK techniques.\n"
+        "## Phase 6: SOAR & SOC Automation\n"
+        "Automate enrichment, alert correlation, and response playbooks.\n"
+        "## Phase 7: Communication & Escalation\n"
+        "Escalate security incidents to the appropriate level and communicate "
+        "findings to stakeholders. Use ticketing and case-management systems.\n"
+    )
+    monkeypatch.setattr(genai, "genai_enabled", lambda: False)
+    result = _run(validator.validate_roadmap(soc_roadmap, KHALED_CV, "soc_analyst"))
+    assert result["source"] == "fallback"
+    assert 0.40 <= result["personalization_score"] <= 0.55
+    # The roadmap must not be judged against beginner Python/Java — those are
+    # demonstrated, so the CV_REDUNDANCY / LEVEL checks stay off them here.
+    evidence = " ".join(v.get("evidence", "") for v in result["violations"])
+    assert "Python" not in evidence and "Java" not in evidence
+
+
+def test_khaled_cv_rejects_beginner_python_and_java(monkeypatch):
+    """A draft that recommends beginner Python/Java for this CV must be
+    penalised (CV_REDUNDANCY / LEVEL_APPROPRIATENESS), and the personalization
+    score must drop out of the 0.40-0.55 band."""
+    bad_roadmap = ("## Phase 1: Python basics\nLearn beginner Python and beginner Java.\n"
+                   "## Phase 2: Operations\nQuery a SIEM, triage alerts.")
+    monkeypatch.setattr(genai, "genai_enabled", lambda: False)
+    result = _run(validator.validate_roadmap(bad_roadmap, KHALED_CV, "soc_analyst"))
+    checks = {v["check_name"] for v in result["violations"]}
+    assert "CV_REDUNDANCY" in checks
+    assert "LEVEL_APPROPRIATENESS" in checks
+    assert result["personalization_score"] < 0.40
