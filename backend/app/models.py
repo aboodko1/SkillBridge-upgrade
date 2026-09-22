@@ -1219,7 +1219,9 @@ def create_student(name, email, university, user_id=None, education_level=None):
 
 
 def update_student(student_id, **fields):
-    allowed = {"name", "email", "university", "target_role_id", "cv_filename", "cohort_confirmed", "share_public", "education_level"}
+    allowed = {"name", "email", "university", "target_role_id",
+               "cv_filename", "cv_text", "cohort_confirmed", "share_public",
+               "education_level"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed and v is not None:

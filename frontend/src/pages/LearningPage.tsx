@@ -2351,6 +2351,7 @@ function roadmapToMarkdown(map: CareerRoadmap): string {
 function VerificationReport({ studentId, map }: { studentId: number; map: CareerRoadmap }) {
   const [report, setReport] = useState<RoadmapValidation | null>(null)
   const [loading, setLoading] = useState(false)
+  const [noCv, setNoCv] = useState(false)
   const [revised, setRevised] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const [applying, setApplying] = useState(false)
@@ -2361,9 +2362,15 @@ function VerificationReport({ studentId, map }: { studentId: number; map: Career
     setReport(null)
     setRevised(null)
     setNotice('')
+    setNoCv(false)
     const draft = roadmapToMarkdown(map)
-    api.validateRoadmap({ draft_roadmap: draft, student_cv: '', role_id: 'soc_analyst' })
-      .then((r) => { if (alive) setReport(r) })
+    api.cvText(studentId)
+      .then(({ cv_text }) => {
+        if (!alive) return
+        setNoCv(!cv_text)
+        return api.validateRoadmap({ draft_roadmap: draft, student_cv: cv_text || '', role_id: 'soc_analyst' })
+          .then((r) => { if (alive) setReport(r) })
+      })
       .catch(() => { if (alive) setReport(null) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
@@ -2410,6 +2417,11 @@ function VerificationReport({ studentId, map }: { studentId: number; map: Career
         <strong>Verification Report</strong>
         {report.source === 'fallback' && <span className="vr-badge">fallback</span>}
       </div>
+      {noCv && (
+        <p className="vr-warn" role="alert">
+          No CV uploaded — personalization score is unavailable. Upload your CV to see a personalized roadmap.
+        </p>
+      )}
       <div className="vr-scores">
         <div className="vr-score"><span>Coverage</span><b>{coveragePct}%</b></div>
         <div className="vr-score"><span>Personalization</span><b>{personalizationPct}%</b></div>

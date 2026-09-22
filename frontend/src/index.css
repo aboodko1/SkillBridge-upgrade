@@ -1060,6 +1060,7 @@ textarea.free-text:focus { outline: 2px solid var(--sb-indigo); outline-offset: 
 .vr-check-name { font-weight: 700; color: var(--sb-midnight-ink); }
 .vr-evidence { flex: 1 1 100%; color: var(--slate-600); }
 .vr-notice { margin: 2px 0 0; font-size: 12.5px; color: var(--green); }
+.vr-warn { margin: 0; font-size: 12.5px; color: var(--amber); background: var(--amber-soft, var(--slate-50)); border: 1px solid var(--amber); border-radius: var(--radius-sm); padding: 6px 9px; }
 .vr-revised { border-top: 1px solid var(--slate-100); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .vr-revised strong { font-size: 12.5px; }
 .vr-footer { margin: 2px 0 0; }

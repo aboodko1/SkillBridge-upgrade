@@ -368,6 +368,7 @@ export const api = {
 
   // ---- full career roadmap
   careerRoadmap: (studentId: number) => req<CareerRoadmap>(`/api/students/${studentId}/career-roadmap`),
+  cvText: (studentId: number) => req<{ cv_text: string }>(`/api/students/${studentId}/cv-text`),
 
   // ---- agentic roadmap validation (wraps the roadmap generator)
   validateRoadmap: (payload: { draft_roadmap: string; student_cv: string; role_id: string }) =>

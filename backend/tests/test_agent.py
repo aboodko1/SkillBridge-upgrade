@@ -102,3 +102,35 @@ def test_apply_corrections_only_uses_failed_checks(monkeypatch):
 def test_role_id_missing_ground_truth(monkeypatch):
     result = _run(validator.validate_roadmap(DRAFT, CV, "does_not_exist"))
     assert result.get("error") == "role_not_found"
+
+
+def test_frontend_cv_flows_into_validator(monkeypatch):
+    """A non-empty CV body reaches the validator and raises personalization.
+
+    The CV demonstrates Python, so the validator must NOT flag a CV_REDUNDANCY
+    violation for Python (and personalization_score must be > 0).
+    """
+    payload = [
+        {"check_name": "FRAMEWORK_COVERAGE", "passed": True, "evidence": "ok", "suggested_fix": ""},
+        {"check_name": "PREREQUISITE_ORDER", "passed": True, "evidence": "ok", "suggested_fix": ""},
+        {"check_name": "CV_REDUNDANCY", "passed": True, "evidence": "Python already demonstrated", "suggested_fix": ""},
+        {"check_name": "RECENCY", "passed": True, "evidence": "ok", "suggested_fix": ""},
+        {"check_name": "HALLUCINATION", "passed": True, "evidence": "ok", "suggested_fix": ""},
+        {"check_name": "LEVEL_APPROPRIATENESS", "passed": True, "evidence": "ok", "suggested_fix": ""},
+    ]
+
+    captured = {}
+    def fake_complete(system, user, **kwargs):
+        captured["user"] = user
+        return json.dumps(payload)
+
+    monkeypatch.setattr(genai, "complete", fake_complete)
+    cv_text = "Built a Python SQLi detector tool. Three Java projects. Peer teaching."
+    result = _run(validator.validate_roadmap(DRAFT, cv_text, "soc_analyst"))
+    assert "coverage_score" in result
+    assert 0.0 < result["personalization_score"] <= 1.0
+    # The CV body actually reached the prompt.
+    assert "Python SQLi detector" in captured["user"]
+    # No CV_REDUNDANCY failure remains (Python is demonstrated).
+    redundancy = [v for v in result["violations"] if v["check_name"] == "CV_REDUNDANCY"]
+    assert not redundancy or all(v["passed"] for v in redundancy)

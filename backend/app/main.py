@@ -1130,12 +1130,25 @@ def upload_cv(student_id: int, file: UploadFile = File(...), request: Request = 
     # current self-reported profile (the old code clobbered skills on every
     # upload, silently erasing a good profile on a scanned/empty upload).
     if extracted:
-        models.update_student(student_id, cv_filename=file.filename)
+        models.update_student(student_id, cv_filename=file.filename, cv_text=cv_text[:200_000])
         models.replace_self_reported_skills(student_id, extracted)
     student = models.get_student(student_id)
     return {"extracted": extracted, "student": student,
             "genai_provider": "real" if genai.genai_enabled() else "deterministic-fallback",
             "warning": warning, "skills_kept": not extracted}
+
+
+@app.get("/api/students/{student_id}/cv-text")
+def api_student_cv_text(student_id: int, request: Request):
+    """Return the raw extracted CV text for a student ("" if none uploaded).
+
+    Feeds the agentic roadmap validator's personalization checks.
+    """
+    user = _current_user(request)
+    _own_student(user, student_id)
+    student = models.get_student(student_id)
+    cv_text = (student or {}).get("cv_text") or ""
+    return {"cv_text": cv_text}
 
 
 # ------------------------------------------------------------------ artifacts

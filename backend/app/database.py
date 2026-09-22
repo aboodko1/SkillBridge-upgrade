@@ -1136,6 +1136,19 @@ def _migration_0016_mentor_ui_preferences(conn):
     """)
 
 
+def _migration_0017_cv_text(conn):
+    """Persist the raw CV text so the roadmap validator can personalize.
+
+    Previously only ``cv_filename`` and the extracted skills were stored; the
+    raw extracted CV text was discarded. The agentic roadmap validator needs
+    the CV body (CV_REDUNDANCY / LEVEL_APPROPRIATENESS checks), so the upload
+    route now stores the extracted text here.
+    """
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(students)").fetchall()]
+    if "cv_text" not in cols:
+        conn.execute("ALTER TABLE students ADD COLUMN cv_text TEXT")
+
+
 MIGRATIONS = [
     {"id": "0001_baseline_implied_schema", "apply": _migration_0001_baseline},
     {"id": "0002_auth_sessions", "apply": _migration_0002_auth_sessions},
@@ -1153,6 +1166,7 @@ MIGRATIONS = [
     {"id": "0014_conversation_live_meta", "apply": _migration_0014_conversation_live_meta},
     {"id": "0015_student_tour_state", "apply": _migration_0015_student_tour_state},
     {"id": "0016_mentor_ui_preferences", "apply": _migration_0016_mentor_ui_preferences},
+    {"id": "0017_cv_text", "apply": _migration_0017_cv_text},
 ]
 
 
