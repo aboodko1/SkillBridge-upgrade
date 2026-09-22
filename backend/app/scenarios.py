@@ -1263,22 +1263,22 @@ def _component_totals(scenario, state):
             continue
         if step.get("multi"):
             comp = step.get("component", "threat_analysis")
-            total[comp] += sum(o.get("points", 0) for o in step.get("options") or [] if o.get("good"))
+            total[comp] = total.get(comp, 0) + sum(o.get("points", 0) for o in step.get("options") or [] if o.get("good"))
             entry = next((d for d in state["decision_log"] if d["step_id"] == step["id"]), None)
             if entry and step["id"] in logged:
-                earned[comp] += max(0, entry["points"])
+                earned[comp] = earned.get(comp, 0) + max(0, entry["points"])
             continue
         decisions = step.get("decisions") or []
         if not decisions:
             continue
         best = max(decisions, key=lambda d: d.get("points", 0))
-        total[best.get("component", "decision_making")] += best.get("points", 0)
+        total[best.get("component", "decision_making")] = total.get(best.get("component", "decision_making"), 0) + best.get("points", 0)
         if step["id"] in logged:
             entry = next((d for d in state["decision_log"] if d["step_id"] == step["id"]), None)
             if entry:
                 for d in decisions:
                     if d["id"] == entry["decision_id"]:
-                        earned[d.get("component", "decision_making")] += d.get("points", 0)
+                        earned[d.get("component", "decision_making")] = earned.get(d.get("component", "decision_making"), 0) + d.get("points", 0)
 
     viewed = set(state.get("evidence_viewed") or [])
     for step in scenario["steps"]:
@@ -1286,9 +1286,9 @@ def _component_totals(scenario, state):
             continue
         for e in step.get("evidence") or []:
             comp = e.get("component", "investigation")
-            total[comp] += e.get("points", 0)
+            total[comp] = total.get(comp, 0) + e.get("points", 0)
             if e["id"] in viewed:
-                earned[comp] += e.get("points", 0)
+                earned[comp] = earned.get(comp, 0) + e.get("points", 0)
     return total, earned
 
 

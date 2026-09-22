@@ -1405,7 +1405,7 @@ FAMILY_SCENARIOS = [
                 "hint": "Each threshold trades false alarms against missed fraud. Price both sides and pick the operating point, not the best-that-looks-good.",
                 "situation": "At threshold 0.5 you get 82% precision / 41% recall. At 0.9 you get 96% / 9%.",
                 "evidence": [
-                    {"id": "threshold", "tab": "Thresholds", "icon": "🎚", "component": "investment if" "threat_analysis", "points": 6,
+                    {"id": "threshold", "tab": "Thresholds", "icon": "🎚", "component": "threat_analysis", "points": 6,
                      "title": "OPERATING POINTS", "content": [
                          {"label": "T 0.5", "value": "82% precision / 41% recall"},
                          {"label": "T 0.7", "value": "90% precision / 24% recall"},

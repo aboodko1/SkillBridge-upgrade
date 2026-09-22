@@ -326,6 +326,32 @@ def test_completed_scenario_rejects_more_decisions(client, soc):
     assert r.status_code in (200, 400)
 
 
+def test_ai_imbalanced_metrics_plays_to_completion(client):
+    """ai-imbalanced-metrics-001 must complete without a 500 even though one of
+    its evidence entries previously carried a malformed component key
+    ("investment if" "threat_analysis" -> "investment ifthreat_analysis" via
+    implicit string concatenation). The scoring path tolerates the bad key and
+    the catalog entry is normalized to "threat_analysis"."""
+    sid, _ = _make_student("ai-metrics@student.edu", "Machine Learning Engineer",
+                           [("Machine Learning", "Advanced"), ("Statistics", "Advanced")])
+    h = _as(client, "ai-metrics@student.edu")
+    view = _start(client, h, sid, "ai-imbalanced-metrics-001")
+    steps = 0
+    result = None
+    while not result and steps < 12:
+        payload = _good_path_client_state(view)
+        payload["evidence_viewed"] = [e["id"] for e in view["step"]["evidence"][:2]]
+        steps += 1
+        out = _decide(client, h, sid, view["attempt_id"], payload)
+        if out.get("completed"):
+            result = out
+        else:
+            view = out
+    assert result is not None, "scenario never completed"
+    assert result["completed"] is True
+    assert 0 <= result["score"] <= 100
+
+
 def test_practice_does_not_verify_skills(client, soc):
     """The hard rule: completing scenarios never adds verified skills."""
     h, sid = soc
