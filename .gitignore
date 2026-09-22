@@ -44,3 +44,7 @@ docs/session-transcript*.json
 .idea/
 .DS_Store
 Thumbs.db
+
+payload.json
+khaled_cv.txt
+test_validator.py
