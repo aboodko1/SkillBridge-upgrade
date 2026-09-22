@@ -157,3 +157,61 @@ def test_frontend_cv_flows_into_validator(monkeypatch):
     # No CV_REDUNDANCY failure remains (Python is demonstrated).
     redundancy = [v for v in result["violations"] if v["check_name"] == "CV_REDUNDANCY"]
     assert not redundancy or all(v["passed"] for v in redundancy)
+
+
+def test_parse_llm_json_handles_markdown_fence():
+    raw = '```json\n[{"check_name": "FRAMEWORK_COVERAGE", "passed": false, "evidence": "x", "suggested_fix": "y"}]\n```'
+    out = validator._parse_llm_json(raw)
+    assert out[0]["check_name"] == "FRAMEWORK_COVERAGE"
+    assert out[0]["passed"] is False
+    # Prose after the fence is ignored too.
+    raw2 = "Here is the result:\n```json\n[{\"check_name\": \"RECENCY\", \"passed\": true}]\n```\nLet me know if you need more."
+    out2 = validator._parse_llm_json(raw2)
+    assert out2[0]["check_name"] == "RECENCY"
+    assert out2[0]["passed"] is True
+
+
+def test_parse_llm_json_handles_trailing_comma():
+    raw = '[{"check_name": "HALLUCINATION", "passed": true,},]'
+    out = validator._parse_llm_json(raw)
+    assert out[0]["check_name"] == "HALLUCINATION"
+    assert out[0]["passed"] is True
+    # Nested trailing comma inside the object is tolerated too.
+    raw2 = '[{"check_name": "RECENCY", "evidence": "ok",}, {"check_name": "RECENCY", "evidence": "ok2",}]'
+    out2 = validator._parse_llm_json(raw2)
+    assert len(out2) == 2
+
+
+def test_fallback_personalization_matches_live_on_bad_draft(monkeypatch):
+    """A draft that re-teaches a demonstrated skill gets the same
+    personalization_score from the deterministic fallback as from the live
+    LLM path — both must be 0.0 when CV_REDUNDANCY and LEVEL_APPROPRIATENESS
+    fail."""
+    bad_draft = ("## Phase 1: Foundations\nLearn Python basics and beginner networking.\n"
+                 "\n## Phase 2: Operations\nQuery a SIEM, triage alerts.")
+    cv = "Knows Python and networking from 3 years in a NOC."
+
+    # Live path: mock the LLM to fail the CV checks (the exact scenario the
+    # fallback should reproduce).
+    live_payload = [
+        {"check_name": "FRAMEWORK_COVERAGE", "passed": False, "evidence": "missing", "suggested_fix": "add"},
+        {"check_name": "PREREQUISITE_ORDER", "passed": True, "evidence": "ok", "suggested_fix": ""},
+        {"check_name": "CV_REDUNDANCY", "passed": False, "evidence": "teaches Python already on CV", "suggested_fix": "Skip Python basics"},
+        {"check_name": "RECENCY", "passed": True, "evidence": "ok", "suggested_fix": ""},
+        {"check_name": "HALLUCINATION", "passed": True, "evidence": "ok", "suggested_fix": ""},
+        {"check_name": "LEVEL_APPROPRIATENESS", "passed": False, "evidence": "beginner Python despite CV", "suggested_fix": "raise level"},
+    ]
+    _mock_complete(monkeypatch, live_payload)
+    live = _run(validator.validate_roadmap(bad_draft, cv, "soc_analyst"))
+
+    # Fallback path: provider disabled.
+    monkeypatch.setattr(genai, "genai_enabled", lambda: False)
+    fallback = _run(validator.validate_roadmap(bad_draft, cv, "soc_analyst"))
+
+    assert live["source"] == "live"
+    assert fallback["source"] == "fallback"
+    assert fallback["personalization_score"] == live["personalization_score"] == 0.0
+    # The fallback also emitted CV_REDUNDANCY and LEVEL_APPROPRIATENESS failures.
+    fb_checks = {v["check_name"] for v in fallback["violations"]}
+    assert "CV_REDUNDANCY" in fb_checks
+    assert "LEVEL_APPROPRIATENESS" in fb_checks

@@ -11,10 +11,14 @@ the result accordingly — the caller must not present a degraded result as a
 live LLM validation.
 """
 import json
+import logging
 import os
+import re
 from pathlib import Path
 
 from .. import genai
+
+logger = logging.getLogger("skillbridge")
 
 GROUND_TRUTH_DIR = Path(__file__).resolve().parent / "ground_truth"
 
@@ -127,17 +131,42 @@ def _validator_user(draft_roadmap, student_cv, role_name, ground_truth_json):
     )
 
 
-def _parse_violations(raw):
-    """Parse the LLM response as a JSON array of violation objects."""
+_TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
+
+
+def _parse_llm_json(raw):
+    """Parse a JSON array from raw LLM output.
+
+    The model sometimes wraps the array in a ```json fence, adds prose before
+    or after the array, or emits trailing commas. Returns a list of violation
+    dicts; raises ValueError (including the raw text) when no array can be
+    extracted.
+    """
     text = (raw or "").strip()
     if not text:
         raise ValueError("empty validator response")
+    # Strip a surrounding markdown fence (```json ... ``` or bare ``` ... ```).
     if text.startswith("```"):
         text = text.strip("`")
         if text.startswith("json"):
             text = text[4:]
         text = text.strip()
-    data = json.loads(text)
+    # Extract the JSON array span (first '[' through last ']'), ignoring prose.
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError(f"no JSON array in validator response:\n{raw}")
+    text = text[start:end + 1]
+    data = None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # Retry with trailing commas removed before ] or }.
+        cleaned = _TRAILING_COMMA_RE.sub(r"\1", text)
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError:
+            raise ValueError(f"validator response is not valid JSON:\n{raw}")
     if not isinstance(data, list):
         # Some models wrap the array in an object; unwrap a single array key.
         if isinstance(data, dict):
@@ -146,7 +175,7 @@ def _parse_violations(raw):
                     data = value
                     break
     if not isinstance(data, list):
-        raise ValueError("validator response is not a JSON array")
+        raise ValueError(f"validator response is not a JSON array:\n{raw}")
     out = []
     for item in data:
         if not isinstance(item, dict):
@@ -162,18 +191,38 @@ def _parse_violations(raw):
     return out
 
 
+# Skills the deterministic fallback can spot in a CV (keyword-level only).
+# Used to emit CV_REDUNDANCY / LEVEL_APPROPRIATENESS findings without a model
+# so the fallback's personalization score tracks the live path.
+_CV_SKILL_TERMS = [
+    "python", "java", "javascript", "sql", "networking", "network",
+    "linux", "windows", "siem", "splunk", "elk", "wireshark", "scapy",
+    "ticketing", "triage", "threat", "mitre", "docker", "cloud", "powershell",
+    "bash", "communication", "presentation", "teaching",
+]
+
+_BEGINNER_MARKERS = ("basics", "beginner", "introduction", "intro",
+                     "fundamentals", "learn")
+
+
 def _deterministic_violations(draft_md, student_cv, ground_truth):
     """No-LLM fallback: a conservative rule check when the provider is down.
 
     Returns (violations, coverage_fraction) computed without a model so the
     endpoint always returns something structured instead of crashing. Callers
     must label this as a fallback.
+
+    Emits the same six check names as the live path and mirrors the live
+    personalization score: CV_REDUNDANCY fires when the roadmap teaches a skill
+    the CV already demonstrates, LEVEL_APPROPRIATENESS when the roadmap frames
+    that skill at beginner level.
     """
     nice = ground_truth.get("nice_soc_analyst.json") or {}
     competencies = nice.get("competencies") or []
     violations = []
     body = draft_md.lower()
     covered = 0
+    missing = []
     for c in competencies:
         name = c.get("name") or ""
         # Very coarse keyword overlap — enough to flag an obviously sparse draft.
@@ -182,19 +231,46 @@ def _deterministic_violations(draft_md, student_cv, ground_truth):
         if hit:
             covered += 1
         else:
-            violations.append({
-                "check_name": "FRAMEWORK_COVERAGE",
-                "passed": False,
-                "evidence": f"Roadmap missing competency '{name}'",
-                "suggested_fix": f"Add a module or phase covering '{name}'",
-            })
-    if not competencies:
+            missing.append((c.get("id") or "?", name))
+    if missing:
+        # Collapse into a single violation; keep the full list for the UI.
+        ids = ", ".join(mid for mid, _ in missing)
+        violations.append({
+            "check_name": "FRAMEWORK_COVERAGE",
+            "passed": False,
+            "evidence": f"Roadmap missing {len(missing)} competencies: {ids}",
+            "suggested_fix": "Add modules covering each listed competency.",
+            "missing_competencies": [{"id": mid, "name": name} for mid, name in missing],
+        })
+    elif not competencies:
         violations.append({
             "check_name": "FRAMEWORK_COVERAGE",
             "passed": False,
             "evidence": "No ground-truth competencies available",
             "suggested_fix": "Review the role ground-truth data",
         })
+
+    # CV-aware checks (deterministic mirror of the live CV_REDUNDANCY and
+    # LEVEL_APPROPRIATENESS checks). Keyword overlap is coarse on purpose: the
+    # fallback should be conservative, not imaginative.
+    cv = (student_cv or "").lower()
+    demonstrated = [t for t in _CV_SKILL_TERMS if t in cv]
+    re_taught = [t for t in demonstrated if t in body]
+    if re_taught:
+        violations.append({
+            "check_name": "CV_REDUNDANCY",
+            "passed": False,
+            "evidence": "Roadmap teaches skills the CV already demonstrates: "
+                        + ", ".join(re_taught),
+            "suggested_fix": "Replace these with assessment-first or advanced modules.",
+        })
+        if any(m in body for m in _BEGINNER_MARKERS):
+            violations.append({
+                "check_name": "LEVEL_APPROPRIATENESS",
+                "passed": False,
+                "evidence": "Roadmap frames a demonstrated skill at beginner level.",
+                "suggested_fix": "Raise the difficulty to match the CV's demonstrated level.",
+            })
     return violations, (covered / len(competencies)) if competencies else 0.0
 
 
@@ -266,7 +342,7 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
     for attempt in range(2):
         try:
             raw = genai.complete(system, user, max_tokens=1400, timeout=90)
-            violations = _parse_violations(raw)
+            violations = _parse_llm_json(raw)
             coverage, personalization = _coverage_and_personalization(violations)
             return {
                 "coverage_score": round(coverage, 3),
@@ -277,10 +353,9 @@ async def validate_roadmap(draft_roadmap, student_cv, role_id):
             }
         except Exception as exc:
             llm_failed_reason = str(exc)
-            import logging
-            logging.getLogger("skillbridge").warning(
-                "validator LLM attempt %d failed: %s", attempt + 1, exc
-            )
+            logger.warning("validator LLM attempt %d failed: %s", attempt + 1, exc)
+            if "raw" in locals() and isinstance(raw, str):
+                logger.warning("validator raw LLM output:\n%s", raw[:4000])
             if attempt == 0:
                 continue
             break
