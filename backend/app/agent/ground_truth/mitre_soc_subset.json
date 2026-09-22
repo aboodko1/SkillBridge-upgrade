@@ -1,0 +1,30 @@
+{
+  "framework": "MITRE ATT&CK Enterprise v18",
+  "techniques": [
+    {"id": "T1566", "name": "Phishing", "tactic": "Initial Access", "soc_relevance": "high"},
+    {"id": "T1566.001", "name": "Phishing: Spearphishing Attachment", "tactic": "Initial Access", "soc_relevance": "high"},
+    {"id": "T1566.002", "name": "Phishing: Spearphishing Link", "tactic": "Initial Access", "soc_relevance": "high"},
+    {"id": "T1059", "name": "Command and Scripting Interpreter", "tactic": "Execution", "soc_relevance": "high"},
+    {"id": "T1059.001", "name": "Command and Scripting Interpreter: PowerShell", "tactic": "Execution", "soc_relevance": "high"},
+    {"id": "T1059.006", "name": "Command and Scripting Interpreter: Python", "tactic": "Execution", "soc_relevance": "high"},
+    {"id": "T1204", "name": "User Execution", "tactic": "Execution", "soc_relevance": "medium"},
+    {"id": "T1078", "name": "Valid Accounts", "tactic": "Defense Evasion", "soc_relevance": "high"},
+    {"id": "T1027", "name": "Obfuscated Files or Information", "tactic": "Defense Evasion", "soc_relevance": "high"},
+    {"id": "T1555", "name": "Credentials from Password Stores", "tactic": "Credential Access", "soc_relevance": "medium"},
+    {"id": "T1110", "name": "Brute Force", "tactic": "Credential Access", "soc_relevance": "medium"},
+    {"id": "T1018", "name": "Remote System Discovery", "tactic": "Discovery", "soc_relevance": "medium"},
+    {"id": "T1087", "name": "Account Discovery", "tactic": "Discovery", "soc_relevance": "medium"},
+    {"id": "T1046", "name": "Network Service Discovery", "tactic": "Discovery", "soc_relevance": "medium"},
+    {"id": "T1033", "name": "System Owner/User Discovery", "tactic": "Discovery", "soc_relevance": "medium"},
+    {"id": "T1071", "name": "Application Layer Protocol", "tactic": "Command and Control", "soc_relevance": "high"},
+    {"id": "T1071.001", "name": "Application Layer Protocol: Web Protocols", "tactic": "Command and Control", "soc_relevance": "high"},
+    {"id": "T1105", "name": "Ingress Tool Transfer", "tactic": "Command and Control", "soc_relevance": "high"},
+    {"id": "T1041", "name": "Exfiltration Over C2 Channel", "tactic": "Exfiltration", "soc_relevance": "medium"},
+    {"id": "T1048", "name": "Exfiltration Over Alternative Protocol", "tactic": "Exfiltration", "soc_relevance": "medium"},
+    {"id": "T1567", "name": "Exfiltration Over Web Service", "tactic": "Exfiltration", "soc_relevance": "medium"},
+    {"id": "T1021", "name": "Remote Services", "tactic": "Lateral Movement", "soc_relevance": "high"},
+    {"id": "T1021.001", "name": "Remote Services: Remote Desktop Protocol", "tactic": "Lateral Movement", "soc_relevance": "high"},
+    {"id": "T1053", "name": "Scheduled Task/Job", "tactic": "Persistence", "soc_relevance": "medium"},
+    {"id": "T1190", "name": "Exploit Public-Facing Application", "tactic": "Initial Access", "soc_relevance": "high"}
+  ]
+}

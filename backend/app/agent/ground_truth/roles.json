@@ -1,0 +1,10 @@
+{
+  "roles": [
+    {
+      "id": "soc_analyst",
+      "name": "SOC Analyst",
+      "nice_work_role_id": "511",
+      "ground_truth_files": ["nice_soc_analyst.json", "mitre_soc_subset.json"]
+    }
+  ]
+}
