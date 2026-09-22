@@ -197,7 +197,7 @@ def test_db_status_endpoint(client):
     assert body["database"] == {"engine": "sqlite", "ok": True}
     assert body["migrations"]["applied_count"] >= 1
     # Applied rows are returned newest-last so the last entry is the latest migration.
-    assert body["migrations"]["applied"][-1]["migration_id"] == MIGRATION_0016
+    assert body["migrations"]["applied"][-1]["migration_id"] == MIGRATION_0017
 
     bounded = client.get("/api/system/db-status?limit=1")
     assert bounded.status_code == 200

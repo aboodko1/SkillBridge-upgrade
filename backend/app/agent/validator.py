@@ -38,14 +38,52 @@ def _load_json(name):
         return json.load(fh)
 
 
+def _match_role(candidates, role_id):
+    """Resolve ``role_id`` against the ground-truth role list.
+
+    Accepts three forms:
+      1. exact match on the role ``id`` (e.g. ``"soc_analyst"``);
+      2. case-insensitive match on the role ``name`` (e.g. ``"SOC Analyst"``);
+      3. an integer catalog role id, resolved via ``models.get_role(id)`` and
+         then matched by name (case-insensitive).
+    Returns the matching role dict, or None.
+    """
+    if isinstance(role_id, str):
+        for r in candidates:
+            if r.get("id") == role_id:
+                return r
+        lowered = role_id.strip().lower()
+        for r in candidates:
+            if (r.get("name") or "").strip().lower() == lowered:
+                return r
+        if role_id.isdigit():
+            role_id = int(role_id)
+        else:
+            return None
+    if isinstance(role_id, int):
+        from .. import models
+        db_role = models.get_role(role_id)
+        if not db_role:
+            return None
+        title = (db_role.get("title") or "").strip().lower()
+        for r in candidates:
+            if (r.get("name") or "").strip().lower() == title:
+                return r
+    return None
+
+
 def load_role(role_id):
     """Load the ground-truth files for a role id.
+
+    ``role_id`` may be the canonical id (``"soc_analyst"``), the role name
+    (``"SOC Analyst"``, case-insensitive), or an integer catalog role id —
+    ``_match_role`` resolves all three to the same ground-truth entry.
 
     Returns (role_meta, ground_truth_payload). Raises KeyError when the role id
     is unknown or a referenced file is missing.
     """
     roles = _load_json("roles.json")
-    role = next((r for r in roles["roles"] if r["id"] == role_id), None)
+    role = _match_role(roles["roles"], role_id)
     if not role:
         raise KeyError(role_id)
     files = role.get("ground_truth_files") or []

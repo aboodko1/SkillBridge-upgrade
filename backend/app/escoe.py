@@ -64,6 +64,23 @@ ESCO_SEARCH_URL = "https://ec.europa.eu/esco/api/search"
 ESCO_OCC_URL = "https://ec.europa.eu/esco/api/resource/occupation"
 TTL_SECONDS = 30 * 60
 
+# Some real-world market terms are NOT canonical ESCO occupation titles and
+# return noise when searched verbatim (e.g. "SOC Analyst" -> "securities
+# analyst", a finance role). Map them to the closest ESCO canonical term that
+# actually returns relevant occupations. Keys are lowercased; values are the
+# ESCO search text used instead. The caller keeps the ORIGINAL query for
+# display.
+_MARKET_ALIASES = {
+    "soc analyst": "ICT security technician",
+    "security operations center analyst": "ICT security technician",
+    "security operations analyst": "ICT security technician",
+}
+
+
+def _canonical_query(q):
+    """Map a market query to its closest ESCO-canonical term when one exists."""
+    return _MARKET_ALIASES.get((q or "").strip().lower(), q)
+
 _POOL_CAP = 42
 _MAX_SUBQUERIES = 5
 _MIN_RELEVANCE = 0.26
@@ -675,11 +692,14 @@ def market_occupations(text, limit=10):
         if (_cache["query"] == text and now - _cache["at"] < TTL_SECONDS
                 and _cache["data"] is not None):
             return _cache["data"]
+    # Map non-canonical market terms (e.g. "SOC Analyst") to a real ESCO
+    # occupation search. The display query stays the original ``text``.
+    search_text = _canonical_query(text)
     try:
-        pool = _retrieve(text)
+        pool = _retrieve(search_text)
     except Exception:
         return []
-    results = _score_enrich_score(pool, text, max(limit, 1))
+    results = _score_enrich_score(pool, search_text, max(limit, 1))
     out = []
     for e in results:
         skills = e["skills"]

@@ -127,6 +127,28 @@ def test_role_id_missing_ground_truth(monkeypatch):
     assert result.get("error") == "role_not_found"
 
 
+def test_load_role_accepts_name_and_id_variants():
+    """load_role must resolve the same role from the canonical id, the display
+    name (any case), and an integer catalog role id resolved via the DB."""
+    id_role, _ = validator.load_role("soc_analyst")
+    name_role, _ = validator.load_role("SOC Analyst")
+    lower_role, _ = validator.load_role("soc analyst")
+    assert id_role == name_role == lower_role
+    assert id_role["id"] == "soc_analyst"
+    # Integer catalog id: the DB row for the SOC Analyst catalog role resolves
+    # by its title back to the same ground-truth entry. If the catalog row is
+    # absent (unseeded test DB), the int path must raise KeyError like unknown
+    # ids rather than crash.
+    from app import models
+    catalog = models.list_catalog_roles(search="SOC Analyst")
+    if catalog:
+        int_role, _ = validator.load_role(catalog[0]["id"])
+        assert int_role["id"] == "soc_analyst"
+    else:
+        with pytest.raises(KeyError):
+            validator.load_role(999999)
+
+
 def test_frontend_cv_flows_into_validator(monkeypatch):
     """A non-empty CV body reaches the validator and raises personalization.
 
