@@ -353,7 +353,7 @@ def _category(name):
     return genai.FALLBACK_SKILL_CATEGORIES.get(name, "General")
 
 
-def seed():
+def seed(pregen=True):
     init_db()
     with get_cursor() as c:
         c.executescript("""
@@ -465,8 +465,9 @@ def seed():
             models.update_verified_skill(student_ids[email], sk["id"], lvl)
 
     # pre-generate learning content for each student's current gaps (uses real GenAI if available)
-    for email, sid in student_ids.items():
-        _pregen_learning(sid)
+    if pregen:
+        for email, sid in student_ids.items():
+            _pregen_learning(sid)
 
     # completed assessment attempts
     for email, skill_name, score, passed, before, after, nflags in ATTEMPTS:
@@ -492,6 +493,24 @@ def question_json(questions):
 def flag_json(flags):
     import json
     return json.dumps(flags)
+
+
+def pregen_learning_for_all():
+    """Pre-generate learning content for every student (used in a background
+    thread at startup so the port binds before the slow content generation).
+
+    The deterministic generator is what made fresh-DB startup take ~30s — on
+    Render's ephemeral disk that delayed port binding past the deploy scan
+    window. Content is also generated on demand when a student opens a skill,
+    so deferring this work is safe.
+    """
+    for student in models.list_students():
+        try:
+            _pregen_learning(student["id"])
+        except Exception:
+            # Best-effort background fill: never let a single student fail the
+            # rest, and never surface to the startup path.
+            pass
 
 
 def _pregen_learning(sid):

@@ -196,12 +196,17 @@ def _assessment_difficulty(student, role, skill_id):
 
 @app.on_event("startup")
 def on_startup():
+    import sys
+    import threading
     from .database import DB_PATH
     if not os.path.exists(DB_PATH):
         # seed.seed() creates the schema AND the reference data (universities,
         # roles, catalog, demo accounts) â€” it must run on a truly fresh DB,
         # which means checking BEFORE init_db() ever touches the file.
-        seed.seed()
+        # Pregen is deferred to a background thread: on an ephemeral deploy
+        # disk (Render) it took ~30s and delayed port binding past the deploy
+        # scan window. Learning content is generated on demand too.
+        seed.seed(pregen=False)
     else:
         # Existing databases are only migrated so their new columns appear.
         init_db()
@@ -212,6 +217,12 @@ def on_startup():
     # Phase D: fill canonical metadata for rows created before migration 0003
     # (idempotent; a no-op for fresh databases).
     models.backfill_role_canonical_metadata()
+    # Pre-generate deterministic learning content in the background so the
+    # server binds the port immediately while content fills in asynchronously.
+    # Never under pytest: the suite owns its seeded test DB and a second
+    # thread mutating it would corrupt cross-test isolation.
+    if sys.modules.get("pytest") is None:
+        threading.Thread(target=seed.pregen_learning_for_all, daemon=True).start()
 
 
 # ------------------------------------------------------------------ auth helpers
