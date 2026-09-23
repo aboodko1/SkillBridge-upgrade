@@ -52,7 +52,7 @@ function Shell() {
   const [navOpen, setNavOpen] = React.useState(false)
   const [notifOpen, setNotifOpen] = React.useState(false)
   const [userMenuOpen, setUserMenuOpen] = React.useState(false)
-  const [learningFocus, setLearningFocus] = React.useState<{ skillId: number; roleTitle: string } | null>(null)
+  const [learningFocus, setLearningFocus] = React.useState<{ skillId: number; roleTitle: string; competency?: string } | null>(null)
   const [prevSection, setPrevSection] = React.useState<Section | null>(null)
   const [demo, setDemo] = React.useState<{ genai_enabled: boolean; email_configured: boolean } | null>(null)
   const [copilotSettingsOpen, setCopilotSettingsOpen] = React.useState(false)
@@ -101,7 +101,7 @@ function Shell() {
   //
   // Phase 5 contract: the focus object is consumed by whichever page mounts,
   // then cleared via onFocusConsumed — no URL params, no navigation loops.
-  const navigate = (dest: string, focus?: { skillId: number; roleTitle: string }) => {
+  const navigate = (dest: string, focus?: { skillId: number; roleTitle: string; competency?: string }) => {
     // A journey roots itself at the hub it started from (Skills & Roles or the
     // Dashboard). Moves between deep-link pages (learning <-> scenarios ->
     // assessments) keep that back-context, so breadcrumbs never spiral into a

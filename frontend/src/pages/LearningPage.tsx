@@ -306,7 +306,7 @@ function LearningAgentPanel({ studentId, skillId, onOpenTopic }: {
 
 export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed, backTo }: {
   onNavigate?: (section: string, focus?: { skillId: number; roleTitle: string }) => void
-  initialFocus?: { skillId: number; roleTitle: string } | null
+  initialFocus?: { skillId: number; roleTitle: string; competency?: string } | null
   onFocusConsumed?: () => void
   backTo?: { key: string; label: string } | null
 }) {
@@ -321,6 +321,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const [query, setQuery] = useState('')
   const [topicFilter, setTopicFilter] = useState('all')
   const [activeTab, setActiveTab] = useState<LearningTab>('for-you')
+  const [learningView, setLearningView] = useState<'today' | 'paths' | 'lesson'>('today')
   const [showTop, setShowTop] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [pathsLoaded, setPathsLoaded] = useState(false)
@@ -332,7 +333,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const [studentProfile, setStudentProfile] = useState<Student | null>(null)
   // Deep link from Skills & Roles ("Learn this skill"): focus a specific skill
   // while keeping the role that prompted it in view as dismissible context.
-  const [focusInfo, setFocusInfo] = useState<{ skillId: number; roleTitle: string } | null>(null)
+  const [focusInfo, setFocusInfo] = useState<{ skillId: number; roleTitle: string; competency?: string } | null>(null)
 
   useEffect(() => {
     if (!studentId) return
@@ -345,6 +346,14 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     if (!initialFocus) return
     setFocusInfo(initialFocus)
     setSelectedSkillId(initialFocus.skillId)
+    setLearningView('lesson')
+    if (initialFocus.competency) {
+      setLessonFocus((prev) => ({
+        skillId: initialFocus.skillId,
+        competency: initialFocus.competency as string,
+        signal: (prev?.signal ?? 0) + 1,
+      }))
+    }
     onFocusConsumed?.()
     const tryScroll = () => {
       document.getElementById('skill-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -556,6 +565,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
 
   const startLearning = (skillId: number) => {
     setSelectedSkillId(skillId)
+    setLearningView('lesson')
     setLearningStart((prev) => ({ skillId, signal: (prev?.signal ?? 0) + 1 }))
     requestAnimationFrame(() => {
       document.getElementById('skill-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -629,6 +639,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const openLessonTopic = (skillId: number, competency: string, tab?: 'learn' | 'example' | 'practice' | 'discuss' | 'mini_check') => {
     if (!competency) return
     setSelectedSkillId(skillId)
+    setLearningView('lesson')
     setLessonFocus((prev) => ({ skillId, competency, signal: (prev?.signal ?? 0) + 1, tab }))
     requestAnimationFrame(() => {
       document.getElementById('skill-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -647,7 +658,8 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const goAssessments = () => onNavigate?.('assessments')
   const viewAllModules = () => {
     setActiveTab('for-you')
-    document.getElementById('learning-home')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setLearningView('paths')
+    requestAnimationFrame(() => document.querySelector('.learning-page .focus-flow')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
   if (!studentId) return <div className="empty">Log in as a student to view your learning path.</div>
@@ -664,11 +676,24 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const journeyTopic = journeyPath?.items.find((it) => !journeyDoneIds.has(it.id)) ?? journeyPath?.items[0] ?? null
   const journeyPlanlessGap = openGaps.find((g) => !pathsBySkill[g.skill_id]) ?? null
   const journeyOpenPaths = openGaps.filter((g) => !!pathsBySkill[g.skill_id])
+  const todayAction = !pathsLoaded ? null
+    : journeyGap && journeyTopic
+      ? { label: `Continue ${journeyGap.skill_name}`, run: () => openLessonTopic(journeyGap.skill_id, journeyTopic.competency) }
+      : journeyPlanlessGap
+        ? { label: `Start ${journeyPlanlessGap.skill_name} diagnostic`, run: () => startLearning(journeyPlanlessGap.skill_id) }
+        : journeyOpenPaths.length > 0
+          ? { label: 'Start your first topic', run: () => startLearning(openGaps[0].skill_id) }
+          : analysis && !targetTitle
+            ? { label: 'Choose a target role', run: () => onNavigate?.('skills') }
+            : analysis && targetTitle
+              ? { label: 'Explore my paths', run: viewAllModules }
+              : null
 
   return (
     <div className="learning-page">
       <MiniTourBanner
         page="learning"
+        compact
         eyebrow="Learning · First time here?"
         title="Your plan at a glance"
         points={[
@@ -688,7 +713,8 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         <div className="lrn-focus" role="status">
           <IconTarget size={15} />
           <span>
-            <b>{focusedName}</b> · learning toward your <b>{focusInfo.roleTitle || 'target'}</b> role. It is open in the panel below.
+            <b>{focusedName}</b> · learning toward your <b>{focusInfo.roleTitle || 'target'}</b> role.
+            {focusInfo.competency ? ` We'll open ${humanizeTopicLabel(focusInfo.competency)} if it appears in your generated path.` : ' It is open in the panel below.'}
           </span>
           <button type="button" className="lrn-focus-x" aria-label="Dismiss context" onClick={() => setFocusInfo(null)}>✕</button>
         </div>
@@ -722,6 +748,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           <p className="learning-hero-eyebrow">Learning</p>
           <h1>Build the skills your target role expects.</h1>
           <p>Follow one personalized path from skill gap to practice and verified progress. Your AI Tutor is available whenever you need help.</p>
+          {learningView === 'today' && todayAction && <button type="button" className="btn btn-primary focus-hero-action" onClick={todayAction.run}>{todayAction.label} <IconArrowRight size={14} /></button>}
         </div>
         <div className="hero-target-card hcard-opportunity">
           <div className="hero-target-card-head"><IconRoadmap size={15} /> Target role</div>
@@ -740,14 +767,21 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
             <span className="htc-chip"><IconCheck size={12} /> {verifiedRequired.verified} verified</span>
           </div>
         </div>
-        <SearchBar
+        {learningView === 'paths' && <SearchBar
           value={query}
           onChange={setQuery}
           placeholder="Search a skill, topic, or ask AI Tutor..."
-        />
-        <LearningTabs active={activeTab} counts={tabCounts} onChange={setActiveTab} />
+        />}
+        {learningView === 'paths' && <LearningTabs active={activeTab} counts={tabCounts} onChange={setActiveTab} />}
       </section>
 
+      <nav className="focus-flow" aria-label="Learning sections">
+        <button type="button" className={learningView === 'today' ? 'active' : ''} aria-current={learningView === 'today' ? 'step' : undefined} onClick={() => setLearningView('today')}><span>01</span> Today</button>
+        <button type="button" className={learningView === 'paths' ? 'active' : ''} aria-current={learningView === 'paths' ? 'step' : undefined} onClick={() => setLearningView('paths')}><span>02</span> My paths</button>
+        <button type="button" className={learningView === 'lesson' ? 'active' : ''} aria-current={learningView === 'lesson' ? 'step' : undefined} onClick={() => setLearningView('lesson')} disabled={!selectedGap}><span>03</span> Lesson</button>
+      </nav>
+
+      {learningView === 'today' && <>
       <section className="journey-band" aria-label="Continue your plan">
         {pathsLoaded && journeyGap && journeyTopic ? (
           <div className="journey-band-inner">
@@ -897,6 +931,10 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         </article>
       </section>
 
+      <button type="button" className="focus-secondary-link" onClick={viewAllModules}>Explore all my paths <IconArrowRight size={14} /></button>
+      </>}
+
+      {learningView === 'paths' && <>
       <div className="learning-layout">
         <main className="panel path-panel hcard-info">
           <div className="panel-head">
@@ -994,6 +1032,8 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           )}
         </main>
 
+        <details className="focus-library focus-more-learning">
+          <summary>More ways to learn <span>AI Tutor · practice · assessments</span></summary>
         <aside className="right-col">
           <div className="panel lp-tutor-panel hcard-ai">
             <div className="lp-tutor-avatar"><IconChat size={22} /></div>
@@ -1043,6 +1083,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
             </button>
           </div>
         </aside>
+        </details>
       </div>
 
       {continueSkills.length > 0 && (
@@ -1061,7 +1102,9 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         </section>
       )}
 
-      <div className="learning-home-grid" id="learning-home">
+      <details className="focus-library" id="learning-home">
+        <summary>Browse the full skill library <span>{filteredSkills.length} skills</span></summary>
+      <div className="learning-home-grid">
         <section className="learning-section">
           <SectionTitle
             eyebrow="Recommended Skills"
@@ -1077,7 +1120,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
                 profileSource={gap.profileSource}
                 path={pathsBySkill[gap.skill_id]}
                 selected={selectedGap?.skill_id === gap.skill_id}
-                onSelect={() => setSelectedSkillId(gap.skill_id)}
+                onSelect={() => { setSelectedSkillId(gap.skill_id); setLearningView('lesson') }}
                 onStart={() => startLearning(gap.skill_id)}
               />
             ))}
@@ -1099,8 +1142,17 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           />
         </aside>
       </div>
+      </details>
+      <details className="focus-library">
+        <summary>Resources and career roadmap <span>Optional reference</span></summary>
+        <ResourceCenter items={items} />
+        <CareerRoadmapCard studentId={studentId} roleTitle={analysis?.role_title} />
+      </details>
+      </>}
 
-      {selectedGap && (
+      {learningView === 'lesson' && selectedGap && (
+        <div className="focus-lesson-shell">
+          <button type="button" className="focus-back" onClick={() => setLearningView('paths')}><IconBack size={14} /> Back to my paths</button>
         <SkillDetailPanel
           studentId={studentId}
           gap={selectedGap}
@@ -1117,10 +1169,8 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           onCompetencyChange={setCopilotCompetency}
           onOpenTopic={(competency, tab) => openLessonTopic(selectedGap.skill_id, competency, tab)}
         />
+        </div>
       )}
-
-      <ResourceCenter items={items} />
-      <CareerRoadmapCard studentId={studentId} roleTitle={analysis?.role_title} />
 
       {showTop && (
         <button className="btn back-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="Back to top">
@@ -1170,7 +1220,9 @@ function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, 
       />
 
       {item && (
-        <>
+        <details className="focus-library focus-saved-pack">
+          <summary>Saved resource pack and roadmap <span>Optional reference</span></summary>
+          <div className="focus-saved-pack-content">
           <section className="learning-section compact legacy-learning-pack">
             <SectionTitle eyebrow="Saved Resources" title="Generated resource pack" meta="Compatibility view" />
             <p className="muted small section-copy">
@@ -1233,7 +1285,8 @@ function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, 
               body="The path timeline component is ready; it will render backend roadmap steps as soon as they exist for this skill."
             />
           )}
-        </>
+          </div>
+        </details>
       )}
     </section>
   )
@@ -1250,6 +1303,7 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
   const [diag, setDiag] = useState<DiagnosticResult | null>(null)
   const [current, setCurrent] = useState<GeneratedDiagnostic | null>(null)
   const [form, setForm] = useState<Record<string, string>>({})
+  const [questionIndex, setQuestionIndex] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const handledStartSignal = useRef(0)
@@ -1260,6 +1314,7 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
       const latest = await api.latestDiagnostic(studentId, skillId)
       setDiag(latest)
       setPhase(latest.completed_at ? 'result' : 'take')
+      setQuestionIndex(0)
     } catch (e: unknown) {
       setDiag(null)
       setPhase('browse')
@@ -1282,6 +1337,7 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
       const gen = await api.generateDiagnostic(studentId, skillId)
       setCurrent(gen)
       setForm({})
+      setQuestionIndex(0)
       setPhase('take')
     } catch (e: unknown) {
       setError((e as Error)?.message || 'Could not start the diagnostic')
@@ -1342,6 +1398,7 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
   }
 
   const questions = current?.questions ?? diag?.questions ?? []
+  const currentQuestion = questions[questionIndex]
 
   return (
     <section className="diagnostic-panel">
@@ -1374,8 +1431,10 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
 
       {phase === 'take' && (
         <>
-          <div className="diagnostic-questions">
-            {questions.map((q) => (
+          {currentQuestion ? <>
+            <div className="focus-diagnostic-progress" role="status">Question {questionIndex + 1} of {questions.length}<div className="progress-track on-light"><div className="progress-fill" style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }} /></div></div>
+          <div className="diagnostic-questions" aria-label={`Question ${questionIndex + 1} of ${questions.length}`}>
+            {(() => { const q = currentQuestion; return (
               <div className="diag-question" key={q.id}>
                 <div className="diag-q-meta">
                   <span className="chip-btn diag-comp-chip">{q.competency}</span>
@@ -1400,11 +1459,15 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
                             onChange={(e) => setForm((f) => ({ ...f, [q.id]: e.target.value }))} />
                 )}
               </div>
-            ))}
+            ) })()}
           </div>
-          <button className="btn btn-primary" onClick={submit} disabled={busy}>
-            {busy ? 'Scoring...' : 'Submit Diagnostic'}
-          </button>
+          <div className="focus-diagnostic-actions">
+            <button type="button" className="btn" onClick={() => setQuestionIndex((i) => Math.max(0, i - 1))} disabled={questionIndex === 0 || busy}>Back</button>
+            {questionIndex < questions.length - 1
+              ? <button type="button" className="btn btn-primary" onClick={() => setQuestionIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={busy}>Next question <IconArrowRight size={14} /></button>
+              : <button type="button" className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? 'Scoring...' : 'Submit Diagnostic'}</button>}
+          </div>
+          </> : <p className="muted small">This diagnostic has no questions yet. Try starting it again.</p>}
         </>
       )}
 
@@ -1557,7 +1620,7 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
     ? `You understand the basics, but your diagnostic identified gaps to close (${pathItem.topic_status}, ${diagnosticPct}%).`
     : `Your diagnostic showed this topic needs improvement (${pathItem.topic_status}, ${diagnosticPct}%).`
 
-  const tabs = ['learn', 'example', 'practice', 'discuss', 'mini_check'] as const
+  const tabs = ['learn', 'example', 'practice', 'mini_check'] as const
   const tabLabels: Record<string, string> = { learn: 'Learn', example: 'Example', practice: 'Practice', discuss: 'Discuss with AI', mini_check: 'Mini Check' }
 
   if (loading) {
@@ -1588,7 +1651,7 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
 
   const content = lesson.content
   const recommendedResources = content.resources || []
-  const nextTab = () => { const idx = tabs.indexOf(tab); if (idx < tabs.length - 1) setTab(tabs[idx + 1]) }
+  const nextTab = () => { const idx = tabs.findIndex((step) => step === tab); setTab(tab === 'discuss' ? 'mini_check' : tabs[Math.min(tabs.length - 1, idx + 1)]) }
   const practiceData = (content.practice ?? {}) as LessonPractice
   const practiceTitle = typeof practiceData.title === 'string' && practiceData.title.trim()
     ? practiceData.title
@@ -1627,12 +1690,16 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
         {isCompleted && <div className="lesson-completed-banner"><IconCheck size={16} /> Topic completed</div>}
       </div>
 
-      <div className="lesson-nav">
-        {tabs.map((t) => (
-          <button key={t} className={`lesson-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-            {tabLabels[t]}
+      <nav className="lesson-nav focus-lesson-steps" aria-label="Lesson steps">
+        {tabs.map((t, index) => (
+          <button key={t} type="button" className={`lesson-tab ${tab === t ? 'active' : ''}`} aria-current={tab === t ? 'step' : undefined} onClick={() => setTab(t)}>
+            <span className="focus-step-number">{index + 1}</span>{tabLabels[t]}
           </button>
         ))}
+      </nav>
+      <div className="focus-lesson-meta">
+        <span>{tab === 'discuss' ? 'Optional help' : `Step ${tabs.findIndex((step) => step === tab) + 1} of ${tabs.length}`}</span>
+        <button type="button" className="btn-link" onClick={() => setTab('discuss')}><IconChat size={14} /> Ask AI Tutor about this topic</button>
       </div>
 
       <div className="lesson-content">
@@ -2093,12 +2160,14 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
 
   useEffect(() => {
     if (!ready || !path || !focusSignal || handledFocusSignal.current === focusSignal.signal) return
-    const found = path.items.find((it) => it.competency === focusSignal.competency)
+    const normalize = (value: string) => value.toLowerCase().replace(/[_\s-]+/g, ' ').trim()
+    const requested = normalize(focusSignal.competency)
+    const found = path.items.find((it) => normalize(it.competency) === requested || normalize(it.title) === requested)
     if (!found) return
     handledFocusSignal.current = focusSignal.signal
-    setOpenCompetency(focusSignal.competency)
+    setOpenCompetency(found.competency)
     setFocusTab(focusSignal.tab ?? 'learn')
-    compRef.current?.(focusSignal.competency)
+    compRef.current?.(found.competency)
   }, [focusSignal, ready, path])
 
   if (!ready) return null

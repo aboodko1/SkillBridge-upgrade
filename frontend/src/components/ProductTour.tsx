@@ -302,11 +302,22 @@ interface MiniTourBannerProps {
   eyebrow: string
   title: string
   points: string[]
+  compact?: boolean
 }
 
-export function MiniTourBanner({ page, eyebrow, title, points }: MiniTourBannerProps) {
+export function MiniTourBanner({ page, eyebrow, title, points, compact = false }: MiniTourBannerProps) {
   const { showMini, markMiniDone } = useTour()
   if (!showMini(page)) return null
+  if (compact) return (
+    <aside className="mini-tour mini-tour-compact" role="note" aria-label={`First-time guide: ${title}`}>
+      <details>
+        <summary><IconRoadmap size={15} /> <strong>{title}</strong><span>3 quick tips · expand</span></summary>
+        <p className="mini-tour-eyebrow">{eyebrow}</p>
+        <ul className="mini-tour-points">{points.map((p) => <li key={p}>{p}</li>)}</ul>
+      </details>
+      <button type="button" className="mini-tour-close" aria-label="Dismiss this guide" onClick={() => markMiniDone(page)}><IconXClose size={13} /></button>
+    </aside>
+  )
   return (
     <aside className="mini-tour" role="note" aria-label={`First-time guide: ${title}`}>
       <div className="mini-tour-head">

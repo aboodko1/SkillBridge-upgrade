@@ -4,16 +4,21 @@ import { api } from '../lib/api'
 import type { GoogleConfig, LocationOption, UniversityOption } from '../lib/types'
 import { IconUser, IconGoogle, IconShield, IconUniversity, IconCheck, IconAlert, IconMail, IconLock } from '../components/Icons'
 import { PasswordInput, ToastRegion, useToast } from '../components/ui'
-import SkillBridgeJourneyHero, { STUDENT_JOURNEY } from '../components/SkillBridgeJourneyHero'
 import BrandLogo from '../components/BrandLogo'
 
 type Mode = 'signin' | 'signup' | 'reset' | 'google-role' | 'google-demo'
 
 const EDUCATION_LEVELS = ['Undergraduate', 'Graduate', 'Bootcamp/Certificate', 'Self-taught/Independent', 'Other']
+const LOGIN_STORY = [
+  { number: '01', label: 'Find your direction', title: 'A role worth working toward.', body: 'Choose a target role and see the skills it expects. Your path starts with a clear destination.', icon: '↗' },
+  { number: '02', label: 'Learn with purpose', title: 'One useful step at a time.', body: 'Follow focused lessons, practice what matters, and see where you left off.', icon: '◎' },
+  { number: '03', label: 'Show your growth', title: 'Progress you can explain.', body: 'Assess your skills and keep verified achievements separate from self-reported experience.', icon: '✓' },
+] as const
 
 export default function LoginPage() {
   const { login, signup } = useApp()
   const [mode, setMode] = useState<Mode>('signin')
+  const [storyStep, setStoryStep] = useState(0)
   const [google, setGoogle] = useState<GoogleConfig | null>(null)
   const [verify, setVerify] = useState<{ token: string; status: 'pending' | 'ok' | 'error' } | null>(null)
 
@@ -48,12 +53,26 @@ export default function LoginPage() {
           <BrandLogo />
         </div>
         <div className="hero-copy">
+          <p className="login-eyebrow"><span /> YOUR NEXT CHAPTER STARTS HERE</p>
           <h1 className="hero-headline">
-            Bridge your skills<br />to <span className="accent">your future.</span>
+            Your future is<br /><span className="accent">built, not guessed.</span>
           </h1>
-          <p className="hero-sub">SkillBridge connects what you learn<br />with real-world opportunities.</p>
+          <p className="hero-sub">Find a direction. Learn the skills. Show what you can do.</p>
         </div>
-        <SkillBridgeJourneyHero data={STUDENT_JOURNEY} />
+        <div className="login-story" aria-label="Explore how SkillBridge works">
+          <div className="login-story-top"><span>THE SKILLBRIDGE JOURNEY</span><span>{LOGIN_STORY[storyStep].number} / 03</span></div>
+          <div className="login-story-icon" aria-hidden="true">{LOGIN_STORY[storyStep].icon}</div>
+          <h2>{LOGIN_STORY[storyStep].title}</h2>
+          <p>{LOGIN_STORY[storyStep].body}</p>
+          <div className="login-story-steps" role="group" aria-label="Journey steps">
+            {LOGIN_STORY.map((step, index) => (
+              <button key={step.number} type="button" className={storyStep === index ? 'active' : ''} aria-pressed={storyStep === index} onClick={() => setStoryStep(index)}>
+                <span>{step.number}</span>{step.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="login-hero-footer">LEARN · CONNECT · GROW <span>✦</span> SKILLS TODAY, A BRIGHTER TOMORROW</p>
       </aside>
 
       <main className="login-form-panel">
@@ -220,10 +239,10 @@ function AuthCard({ mode, setMode, login, signup, google }: any) {
         {mode === 'signin' ? 'Bridge university learning to real-world work.' : mode === 'signup' ? 'Join students, companies, and universities on one platform.' : 'We\u2019ll send you a link to reset your password.'}
       </p>
 
-      {mode === 'signup' && (
-        <div className="tabs">
-          <button className={mode === 'signin' ? 'active' : ''} onClick={() => switchMode('signin')}>Sign in</button>
-          <button className={mode === 'signup' ? 'active' : ''} onClick={() => switchMode('signup')}>Create account</button>
+      {(mode === 'signin' || mode === 'signup') && (
+        <div className="tabs" role="group" aria-label="Account action">
+          <button type="button" className={mode === 'signin' ? 'active' : ''} aria-pressed={mode === 'signin'} onClick={() => switchMode('signin')}>Sign in</button>
+          <button type="button" className={mode === 'signup' ? 'active' : ''} aria-pressed={mode === 'signup'} onClick={() => switchMode('signup')}>Create account</button>
         </div>
       )}
 
@@ -240,7 +259,7 @@ function AuthCard({ mode, setMode, login, signup, google }: any) {
             {fieldErrs.password && <span className="field-err">{fieldErrs.password}</span>}</div>
           {error && <div className="error">{error}</div>}
           <div className="login-remember-row">
-            <label><input type="checkbox" /> Remember me</label>
+            <span>Need help accessing your account?</span>
             <button type="button" className="link" onClick={() => switchMode('reset')}>Forgot password?</button>
           </div>
           <button className="btn btn-primary btn-signin" disabled={busy}>

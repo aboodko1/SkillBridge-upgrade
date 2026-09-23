@@ -62,10 +62,10 @@ ok(/asm-chip strong/.test(assessments) && /asm-chip warn/.test(assessments),
    'AssessmentsPage: strengths/improvements render as plain-language chips')
 
 // ---- Results: ONE primary next action pointing at a real existing action.
-ok(/Add \{gap\.skill_name\} to my plan/.test(assessments),
-   'AssessmentsPage: results offer a primary "Add <skill> to my plan" action')
-ok(/onNavigate\?\.\('learning', \{ skillId: gap\.skill_id, roleTitle: roleTitleForPlan \}\)/.test(assessments),
-   'AssessmentsPage: the plan action deep-links to the real Learning page for that skill')
+ok(/Improve \$\{String\(improve\[0\]\.competency\)/.test(assessments) && /Open \$\{gap\.skill_name\} learning plan/.test(assessments),
+   'AssessmentsPage: results offer one clear improvement action or plan fallback')
+ok(/onNavigate\?\.\('learning', \{ skillId: gap\.skill_id, roleTitle: roleTitleForPlan, competency: improve\[0\]\?\.competency \}\)/.test(assessments),
+   'AssessmentsPage: the improvement action deep-links to Learning with the skill and weak topic')
 ok(/asm-plan-cta/.test(assessments),
    'AssessmentsPage: primary plan action carries a dedicated class')
 
@@ -76,7 +76,7 @@ ok(/result-details/.test(css) && /result-details summary/.test(css) && /result-d
    'index.css: View details disclosure and its body are styled')
 
 // ---- onNavigate is threaded from the page into the starter.
-ok(/onNavigate\?: \(section: string, focus\?: \{ skillId: number; roleTitle: string \}\) => void \}\) \{/.test(assessments),
+ok(/onNavigate\?: \(section: string, focus\?: \{ skillId: number; roleTitle: string; competency\?: string \}\) => void \}\) \{/.test(assessments),
    'AssessmentsPage: AssessmentStarter accepts onNavigate')
 ok(/onNavigate=\{onNavigate\}/.test(assessments),
    'AssessmentsPage: onNavigate is passed at every AssessmentStarter render site')

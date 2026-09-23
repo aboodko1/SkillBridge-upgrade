@@ -1,0 +1,96 @@
+/* Focused learning and assessment navigation. Existing content remains available. */
+.focus-flow { display: flex; gap: 8px; padding: 6px; border: 1px solid var(--sb-border); border-radius: 17px; background: var(--sb-panel); width: fit-content; max-width: 100%; flex-wrap: wrap; }
+.focus-flow button { border: 0; border-radius: 12px; background: transparent; color: var(--slate-500); padding: 12px 18px; display: inline-flex; align-items: center; gap: 10px; font: inherit; font-weight: 700; cursor: pointer; transition: background .18s, color .18s, transform .18s; }
+.focus-flow button span { font-size: 11px; font-weight: 800; letter-spacing: .08em; opacity: .65; }
+.focus-flow button small { border-radius: 99px; padding: 2px 7px; background: var(--slate-100); }
+.focus-flow button:hover:not(:disabled) { color: var(--sb-midnight-ink); background: var(--slate-100); transform: translateY(-1px); }
+.focus-flow button.active { background: #ff9658; color: #101a29; box-shadow: 0 5px 15px rgba(255,125,59,.16); }
+.focus-flow button.active:hover { color: #101a29; background: #ff9658; }
+.focus-flow button:disabled { cursor: not-allowed; opacity: .48; }
+.focus-flow button:focus-visible, .focus-show-more:focus-visible, .focus-library summary:focus-visible, .login-story-steps button:focus-visible { outline: 3px solid var(--sb-indigo); outline-offset: 3px; }
+.focus-next-action { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 26px; border: 1px solid var(--sb-border); border-radius: 16px; background: var(--sb-panel); }
+.focus-next-action strong { display: block; color: var(--sb-midnight-ink); font-size: 17px; }
+.focus-next-action p { margin: 5px 0 0; color: var(--slate-500); font-size: 13px; }
+.focus-library { border: 1px solid var(--sb-border); border-radius: 16px; background: var(--sb-panel); overflow: hidden; }
+.focus-library > summary { list-style: none; cursor: pointer; padding: 19px 22px; color: var(--sb-midnight-ink); font-weight: 750; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.focus-library > summary::-webkit-details-marker { display: none; }
+.focus-library > summary::after { content: '⌄'; color: var(--sb-indigo); margin-inline-start: auto; font-size: 18px; }
+.focus-library[open] > summary::after { transform: rotate(180deg); }
+.focus-library > summary span { color: var(--slate-500); font-size: 12px; font-weight: 600; }
+.focus-library > .learning-home-grid, .focus-library > .resource-center-section, .focus-library > .career-roadmap-section { margin: 0 18px 18px; }
+.focus-library > .resource-center-section + .career-roadmap-section { margin-top: 18px; }
+.learning-layout:has(.focus-more-learning) { display: block; }
+.focus-more-learning { margin-top: 18px; }
+.focus-more-learning > .right-col { padding: 0 18px 18px; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px; }
+.mini-tour-compact { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.mini-tour-compact > details { flex: 1; min-width: 0; }
+.mini-tour-compact summary { list-style: none; display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--slate-900); }
+.mini-tour-compact summary::-webkit-details-marker { display: none; }
+.mini-tour-compact summary > svg { color: var(--sb-indigo); flex: none; }
+.mini-tour-compact summary strong { font-size: 13px; }
+.mini-tour-compact summary span { color: var(--slate-500); font-size: 11px; margin-inline-start: auto; }
+.mini-tour-compact summary:focus-visible { outline: 3px solid var(--sb-indigo); outline-offset: 3px; }
+.mini-tour-compact .mini-tour-points { margin-bottom: 4px; }
+.focus-lesson-shell { min-width: 0; }
+.focus-back { background: transparent; border: 0; color: var(--sb-indigo); font: inherit; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; margin: 0 0 15px; padding: 7px 0; cursor: pointer; }
+.focus-assessment-layout { display: block; }
+.focus-assessment-layout > .assessment-panel { width: 100%; max-width: 940px; }
+.focus-show-more { display: block; margin: 18px auto 4px; padding: 10px 16px; border: 1px solid var(--sb-border); border-radius: 10px; background: var(--sb-panel); color: var(--sb-midnight-ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.focus-show-more:hover { border-color: var(--sb-indigo); }
+.focus-secondary-link { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0 0; padding: 10px 2px; border: 0; background: transparent; color: var(--sb-indigo); font: inherit; font-size: 13px; font-weight: 750; cursor: pointer; }
+.focus-secondary-link:hover { text-decoration: underline; }
+.focus-hero-action { margin-top: 18px; }
+.learning-page:has(.focus-hero-action) .journey-card-actions { display: none; }
+.focus-secondary-link:focus-visible, .focus-back:focus-visible, .focus-lesson-meta button:focus-visible { outline: 3px solid var(--sb-indigo); outline-offset: 3px; border-radius: 4px; }
+.focus-lesson-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.focus-lesson-steps .lesson-tab { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 44px; text-align: center; }
+.focus-step-number { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border: 1px solid currentColor; border-radius: 50%; font-size: 11px; }
+.focus-lesson-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 10px 0 18px; color: var(--slate-500); font-size: 12px; font-weight: 700; }
+.focus-lesson-meta button { display: inline-flex; align-items: center; gap: 6px; }
+.focus-lesson-steps .lesson-tab:focus-visible { outline: 3px solid var(--sb-indigo); outline-offset: 2px; }
+.focus-saved-pack { margin-top: 18px; }
+.focus-saved-pack-content { padding: 0 18px 18px; }
+.focus-diagnostic-progress { display: grid; gap: 8px; margin: 16px 0; color: var(--sb-midnight-ink); font-size: 12px; font-weight: 750; }
+.focus-diagnostic-progress .progress-track { width: 100%; }
+.focus-diagnostic-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.focus-diagnostic-actions .btn { min-height: 44px; }
+
+/* Login: expressive, restrained editorial hero; authentication logic is unchanged. */
+.login-split { isolation: isolate; }
+.login-hero-panel { background: #0b1421; padding: clamp(26px, 3.2vw, 54px); }
+.login-hero-panel::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 83% 25%, rgba(90,118,214,.18), transparent 32%), radial-gradient(circle at 12% 78%, rgba(255,127,63,.13), transparent 34%), linear-gradient(125deg, #101b2d 0%, #0b1421 72%); pointer-events: none; }
+.login-hero-panel::after { content: ''; position: absolute; width: min(68vw, 610px); aspect-ratio: 1; border: 1px solid rgba(190,203,255,.08); border-radius: 50%; top: -42%; right: -32%; box-shadow: 0 0 0 100px rgba(155,175,255,.025), 0 0 0 200px rgba(155,175,255,.015); pointer-events: none; }
+.login-hero-panel .hero-logo { position: relative; z-index: 1; }
+.login-hero-panel .hero-copy { margin-top: clamp(54px, 9vh, 110px); }
+.login-eyebrow { display: inline-flex; align-items: center; gap: 9px; margin: 0 0 23px; color: #a5b7d0; font-size: 10px; letter-spacing: .22em; font-weight: 800; }
+.login-eyebrow span { width: 7px; height: 7px; border-radius: 50%; background: #ff9c5b; box-shadow: 0 0 0 5px rgba(255,156,91,.12); }
+.login-hero-panel .hero-headline { font-size: clamp(42px, 4.2vw, 72px); line-height: 1.02; letter-spacing: -.055em; max-width: 760px; }
+.login-hero-panel .hero-headline .accent { color: #ffad76; }
+.login-hero-panel .hero-sub { max-width: 520px; color: #b9c6d8; font-size: clamp(15px, 1.2vw, 18px); margin-top: 24px; }
+.login-story { position: relative; z-index: 2; margin-top: auto; padding: 26px 28px 22px; border: 1px solid rgba(210,224,255,.15); border-radius: 22px; background: linear-gradient(135deg, rgba(24,40,62,.95), rgba(15,27,44,.96)); box-shadow: 0 24px 70px rgba(1,8,18,.28); max-width: 760px; }
+.login-story-top { display: flex; justify-content: space-between; gap: 10px; color: #aebed4; font-size: 10px; letter-spacing: .18em; font-weight: 800; }
+.login-story-icon { width: 54px; height: 54px; display: grid; place-items: center; margin: 19px 0 12px; border-radius: 15px; background: rgba(255,151,82,.14); border: 1px solid rgba(255,151,82,.28); color: #ffad76; font-size: 33px; line-height: 1; }
+.login-story h2 { color: #fff; font-size: clamp(22px, 2vw, 30px); margin: 0 0 9px; line-height: 1.15; letter-spacing: -.03em; }
+.login-story p { color: #b1bfd2; font-size: 13.5px; line-height: 1.6; min-height: 42px; max-width: 520px; margin: 0 0 20px; }
+.login-story-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.login-story-steps button { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; min-width: 0; border: 1px solid rgba(206,220,245,.12); border-radius: 11px; padding: 11px 12px; background: rgba(255,255,255,.035); color: #aebdd0; font: inherit; font-weight: 650; font-size: 11px; cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
+.login-story-steps button span { color: #ffad76; font-size: 10px; font-weight: 800; letter-spacing: .1em; }
+.login-story-steps button:hover { transform: translateY(-2px); background: rgba(255,255,255,.075); }
+.login-story-steps button.active { color: #fff; border-color: rgba(255,170,111,.65); background: rgba(255,151,82,.11); }
+.login-hero-footer { position: relative; z-index: 2; margin: 24px 0 0; color: #8fa1b9; font-size: 9px; letter-spacing: .17em; font-weight: 750; }
+.login-hero-footer span { color: #ffad76; margin: 0 8px; }
+.login-form-panel { background: var(--sb-background); padding: clamp(24px, 4vw, 64px); }
+.login-card-wrap { max-width: 490px; }
+.login-card { padding: clamp(28px, 3.4vw, 48px); border-radius: 23px; box-shadow: 0 22px 60px rgba(16,30,50,.09); }
+.login-card .lc-heading { font-size: clamp(28px, 2.2vw, 34px); letter-spacing: -.04em; }
+.login-card .lc-sub { line-height: 1.55; margin-bottom: 22px; }
+.login-card .tabs { padding: 4px; gap: 4px; border: 1px solid var(--sb-border); border-radius: 12px; background: var(--sb-background); }
+.login-card .tabs button { border-radius: 9px; background: transparent; }
+.login-card .tabs button.active, [data-theme] .login-card .tabs button.active { background: #ff9658; color: #101a29; }
+.login-card .btn-signin { box-shadow: 0 8px 20px rgba(255,107,44,.18); }
+.login-remember-row { flex-wrap: wrap; gap: 8px; }
+
+@media (max-width: 1100px) { .login-hero-panel .hero-headline { font-size: clamp(38px, 4vw, 55px); } .login-story { padding: 20px; } }
+@media (max-width: 900px) { .login-hero-panel { min-height: auto; gap: 28px; } .login-hero-panel .hero-copy { margin-top: 8px; } .login-story { margin-top: 0; } .login-hero-footer { margin-top: 0; } }
+@media (max-width: 640px) { .focus-flow { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); } .learning-page .focus-flow { grid-template-columns: repeat(3, minmax(0,1fr)); } .focus-flow button { padding: 10px; gap: 4px; flex-direction: column; font-size: 11px; } .focus-next-action { align-items: flex-start; flex-direction: column; } .focus-more-learning > .right-col { grid-template-columns: 1fr; } .mini-tour-compact summary span { display: none; } .login-hero-panel .hero-headline { font-size: 36px; } .login-story-steps button { font-size: 10px; padding: 9px; } .login-story-icon { display: none; } .login-story { padding: 18px; } .login-story h2 { margin-top: 16px; } .focus-lesson-steps { grid-template-columns: repeat(2, minmax(0,1fr)); } .focus-lesson-meta { align-items: flex-start; flex-direction: column; } }
+@media (prefers-reduced-motion: reduce) { .login-story-steps button, .focus-flow button { transition: none; } }

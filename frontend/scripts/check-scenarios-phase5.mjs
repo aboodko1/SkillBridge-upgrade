@@ -23,7 +23,7 @@ const dashboard = read('frontend/src/pages/DashboardPage.tsx')
 const css = read('frontend/src/index.css')
 
 // ---- 1. App wires cross-page deep links (focus consumed per page, cleared).
-ok(/const navigate = \(dest: string, focus\?: \{ skillId: number; roleTitle: string \}\)/.test(app)
+ok(/const navigate = \(dest: string, focus\?: \{ skillId: number; roleTitle: string; competency\?: string \}\)/.test(app)
    && /if \(section === 'skills' \|\| section === 'dashboard'\) setPrevSection\(section\)/.test(app),
    'App.navigate roots the journey at a hub only (no learning<->scenarios loops)')
 ok(/setLearningFocus\(focus\)/.test(app) && /onFocusConsumed=\{\(\) => setLearningFocus\(null\)\}/.test(app),

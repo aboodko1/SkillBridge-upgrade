@@ -166,7 +166,7 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
   initialSkillId?: number
   onFocusConsumed?: () => void
   backTo?: { key: string; label: string } | null
-  onNavigate?: (section: string, focus?: { skillId: number; roleTitle: string }) => void
+  onNavigate?: (section: string, focus?: { skillId: number; roleTitle: string; competency?: string }) => void
 }) {
   const { me, refreshStudent, applyCopilot } = useApp()
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
@@ -177,6 +177,9 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
   const [retryKey, setRetryKey] = useState(0)
   const [evidenceId, setEvidenceId] = useState<number | null>(null)
   const [focusSkillName, setFocusSkillName] = useState('')
+  const [assessmentView, setAssessmentView] = useState<'choose' | 'history'>('choose')
+  const [showAllSkills, setShowAllSkills] = useState(false)
+  const [assessmentActive, setAssessmentActive] = useState(false)
   const toast = useToast()
 
   useEffect(() => {
@@ -198,6 +201,8 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
     const name = allSkills.find((s) => s.id === id)?.name || ''
     if (!name) return
     setFocusSkillName(name)
+    setAssessmentView('choose')
+    setShowAllSkills(true)
     setKeepIds((prev) => { const n = new Set(prev); n.add(id); return n })
     requestAnimationFrame(() => {
       const el = document.querySelector(`[data-skill-id="${id}"]`)
@@ -242,12 +247,14 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
   // the first assessable gap or, when nothing is open, the browse list.
   const heroPrimary = analysis
     ? viableSkills.length > 0
-      ? { skillId: viableSkills[0].skill_id, label: `Start assessment — ${viableSkills[0].skill_name}` }
+      ? { skillId: viableSkills[0].skill_id, label: `Choose ${viableSkills[0].skill_name}` }
       : browseSkills.length > 0
         ? { skillId: browseSkills[0].id, label: 'Browse skills to verify' }
         : null
     : null
   const scrollToSkill = (skillId: number) => {
+    setAssessmentView('choose')
+    setShowAllSkills(true)
     requestAnimationFrame(() => {
       const el = document.querySelector(`[data-skill-id="${skillId}"]`)
       if (el) {
@@ -265,8 +272,8 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
         key={g.skill_id}
         gap={g}
         lastAttempt={last}
-        onActivate={() => keep(g.skill_id)}
-        onDeactivate={() => release(g.skill_id)}
+        onActivate={() => { keep(g.skill_id); setAssessmentActive(true) }}
+        onDeactivate={() => { release(g.skill_id); setAssessmentActive(false) }}
         onDone={() => { refreshStudent(); api.analysis(me.student!.id).then(setAnalysis); api.studentAssessments(me.student!.id).then(setAttempts) }}
         onError={(m) => toast.push(m, 'error')}
         onSuccess={(m) => toast.push(m)}
@@ -277,11 +284,17 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
 
   const passedAttempts = attempts.filter((attempt) => attempt.passed).length
   const verifiedSkillIds = new Set(me.student.verified_skills.map((v) => v.skill_id))
+  const visibleGaps = showAllSkills ? renderedGaps : renderedGaps.slice(0, 3)
+  const visibleBrowse = showAllSkills ? browseSkills : browseSkills.slice(0, 3)
+  const hiddenSkillCount = showBrowse
+    ? Math.max(0, browseSkills.length - visibleBrowse.length)
+    : Math.max(0, renderedGaps.length - visibleGaps.length)
 
   return (
     <div className="assessment-page">
       <MiniTourBanner
         page="assessments"
+        compact
         eyebrow="Assessments · First time here?"
         title="Measure safely, then take the test"
         points={[
@@ -336,8 +349,12 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
         </div>
       </section>
 
-      <div className="assessment-layout">
-        <section className="panel assessment-panel">
+      <nav className="focus-flow" aria-label="Assessment sections">
+        <button type="button" className={assessmentView === 'choose' ? 'active' : ''} aria-current={assessmentView === 'choose' ? 'step' : undefined} onClick={() => setAssessmentView('choose')}><span>01</span> Choose a skill</button>
+        <button type="button" className={assessmentView === 'history' ? 'active' : ''} aria-current={assessmentView === 'history' ? 'step' : undefined} disabled={assessmentActive} onClick={() => setAssessmentView('history')}><span>02</span> Results <small>{attempts.length}</small></button>
+      </nav>
+      <div className="assessment-layout focus-assessment-layout">
+        {assessmentView === 'choose' && <section className="panel assessment-panel">
           <div className="panel-head">
             <div>
               <div className="panel-title-row">
@@ -357,7 +374,7 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
             <div className="empty" style={{ margin: '12px 0' }}>No skill gaps to assess. Select a target role first to see tailored gaps.</div>
           )}
           <div className="verify-list">
-            {renderedGaps.map(renderGap)}
+            {visibleGaps.map(renderGap)}
             {showBrowse && (
               <>
                 <div className="info" style={{ whiteSpace: 'normal' }}>
@@ -366,15 +383,15 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
                     ? 'You have no open skill gaps right now. You can still verify any skill below to strengthen your profile.'
                     : 'Set a target role to get tailored gap suggestions — or verify a skill directly below.'}
                 </div>
-                {browseSkills.map((s) => {
+                {visibleBrowse.map((s) => {
                   const last = attempts.filter((a) => a.skill_id === s.id).sort((a, b) => b.id - a.id)[0]
                   return (
                     <AssessmentStarter
                       key={s.id}
                       gap={{ skill_id: s.id, skill_name: s.name, category: s.category, required_level: 'Intermediate', student_level: null, status: 'missing', verified: false }}
                       lastAttempt={last}
-                      onActivate={() => {}}
-                      onDeactivate={() => {}}
+                      onActivate={() => setAssessmentActive(true)}
+                      onDeactivate={() => setAssessmentActive(false)}
                       onDone={() => { refreshStudent(); api.studentAssessments(me.student!.id).then(setAttempts); api.analysis(me.student!.id).then(setAnalysis) }}
                       onError={(m) => toast.push(m, 'error')}
                       onSuccess={(m) => toast.push(m)}
@@ -385,10 +402,12 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
               </>
             )}
           </div>
+          {hiddenSkillCount > 0 && <button type="button" className="focus-show-more" onClick={() => setShowAllSkills(true)}>Show {hiddenSkillCount} more skills <IconAssessment size={14} /></button>}
+          {showAllSkills && (renderedGaps.length > 3 || browseSkills.length > 3) && !assessmentActive && <button type="button" className="focus-show-more" onClick={() => setShowAllSkills(false)}>Show fewer skills</button>}
           <ToastRegion toasts={toast.toasts} dismiss={toast.dismiss} />
-        </section>
+        </section>}
 
-        <section className="panel assessment-panel">
+        {assessmentView === 'history' && <section className="panel assessment-panel">
           <div className="panel-head">
             <div>
               <div className="panel-title-row">
@@ -401,12 +420,8 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
           {attempts.length === 0 ? (
             <div className="empty" style={{ margin: '12px 0' }}>No attempts recorded yet.</div>
           ) : (
-            <details className="details-expander">
-              <summary>
-                <span>Show assessment history</span>
-                <span className="de-count">({attempts.length} attempt{attempts.length === 1 ? '' : 's'})</span>
-              </summary>
-              <div className="de-body">
+            <div className="focus-results">
+              <p className="muted small">{attempts.length} attempt{attempts.length === 1 ? '' : 's'} recorded. Open a result only when you want its evidence.</p>
                 <ul className="history-list">
                   {attempts.map((a) => {
                     const flags: IntegrityFlag[] = safeParseJson(a.flags)
@@ -438,10 +453,9 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
                     )
                   })}
                 </ul>
-              </div>
-            </details>
+            </div>
           )}
-        </section>
+        </section>}
       </div>
     </div>
   )
@@ -457,7 +471,7 @@ const EMPTY_PRECHECK: CameraPrecheckState = {
   message: 'Camera not started.',
 }
 
-function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate, onError, onSuccess, onNavigate }: { gap: any; lastAttempt?: AssessmentAttempt; onDone: () => void; onActivate: () => void; onDeactivate: () => void; onError?: (m: string) => void; onSuccess?: (m: string) => void; onNavigate?: (section: string, focus?: { skillId: number; roleTitle: string }) => void }) {
+function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate, onError, onSuccess, onNavigate }: { gap: any; lastAttempt?: AssessmentAttempt; onDone: () => void; onActivate: () => void; onDeactivate: () => void; onError?: (m: string) => void; onSuccess?: (m: string) => void; onNavigate?: (section: string, focus?: { skillId: number; roleTitle: string; competency?: string }) => void }) {
   const { me, setAssessmentActive } = useApp()
   const [mode, setMode] = useState<Mode>('idle')
   const [questions, setQuestions] = useState<QuizQuestion[]>([])
@@ -1393,8 +1407,8 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
               </div>
             </div>
             <div className="flex result-actions-wrap" style={{ gap: 8 }}>
-              <button className="btn btn-primary asm-plan-cta" onClick={() => onNavigate?.('learning', { skillId: gap.skill_id, roleTitle: roleTitleForPlan })} disabled={!onNavigate}>
-                <IconTarget size={14} /> Add {gap.skill_name} to my plan
+              <button className="btn btn-primary asm-plan-cta" onClick={() => onNavigate?.('learning', { skillId: gap.skill_id, roleTitle: roleTitleForPlan, competency: improve[0]?.competency })} disabled={!onNavigate}>
+                <IconTarget size={14} /> {improve.length ? `Improve ${String(improve[0].competency).replace(/_/g, ' ')}` : `Open ${gap.skill_name} learning plan`}
               </button>
               <button className="btn" onClick={() => { setMode('idle'); onDeactivate() }}>Back to skill list</button>
               {lastAttempt && <button className="btn" onClick={() => start(true)}><IconTrophy size={14} /> Practice review</button>}
