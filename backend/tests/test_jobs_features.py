@@ -125,6 +125,7 @@ def test_fetch_all_skips_provider_on_429_cooldown(monkeypatch):
         "Arbeitnow": jobs._fetch_arbeitnow,
         "Himalayas": jobs._fetch_himalayas,
         "Get on Board": jobs._fetch_getonboard,
+        "Employer boards": jobs._fetch_employer_boards,
     }
     for _name, fn in keyless.items():
         monkeypatch.setattr(jobs, fn.__name__, recorder(_name))

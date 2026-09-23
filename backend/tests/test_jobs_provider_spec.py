@@ -9,6 +9,7 @@ Covers the 20 required cases from the Live Jobs Provider Integration &
 Smart Ranking spec.
 """
 import json
+from datetime import date
 
 import httpx
 import pytest
@@ -336,6 +337,7 @@ def test_single_provider_failure_does_not_break_the_feed(monkeypatch, sync_build
 
 def test_multiple_providers_aggregate_and_dedupe(monkeypatch, sync_build):
     _reset_feed()
+    recent = date.today().isoformat()
     monkeypatch.setenv("ADZUNA_APP_ID", "test-id")
     monkeypatch.setenv("ADZUNA_APP_KEY", "test-key")
     for var in ("JSEARCH_API_KEY", "RAPIDAPI_KEY", "USAJOBS_API_KEY", "JOOBLE_API_KEY"):
@@ -363,11 +365,11 @@ def test_multiple_providers_aggregate_and_dedupe(monkeypatch, sync_build):
                 "description": "Aggregate data and report insights.",
                 "salary_min": 8000, "salary_max": 10000,
                 "category": {"label": "Information Technology"},
-                "created": "2026-08-21T09:00:00",
+                "created": f"{recent}T09:00:00",
             }]})
         return _Resp({"jobs": [{
             "title": "Data Analyst", "company_name": "JC Remotive",
-            "url": "https://remotive.com/remote-jobs/3", "publication_date": "2026-08-21",
+            "url": "https://remotive.com/remote-jobs/3", "publication_date": recent,
             "candidate_required_location": "Remote", "tags": ["Data", "SQL"],
         }]})
 
@@ -376,7 +378,7 @@ def test_multiple_providers_aggregate_and_dedupe(monkeypatch, sync_build):
     # a different URL - it must merge into one job, never duplicate.
     monkeypatch.setattr(jobs, "_fetch_remoteok", lambda n: [{
         "title": "Data Analyst", "company": "JC Remotive",
-        "url": "https://remoteok.com/dup/3", "date": "2026-08-22",
+        "url": "https://remoteok.com/dup/3", "date": recent,
         "location": "Remote", "tags": ["SQL"], "description": "Same role, two boards.",
         "source": "RemoteOK",
     }])
@@ -559,7 +561,7 @@ def test_providers_answered_but_no_jobs_is_honest_empty(monkeypatch, sync_build)
 def test_all_providers_down_is_empty_unavailable_not_fallback(monkeypatch, sync_build):
     _reset_feed()
     # keyed providers stay skipped (no throwaway key configured), so exactly the
-    # four keyless feeds attempt and fail: Remotive, RemoteOK, Jobicy, Arbeitnow.
+    # All keyless feeds, including Egypt employer boards, attempt and fail.
     # With every provider unreachable the result is an honest ``unavailable``
     # empty state — curated/demo jobs are never injected.
 
@@ -577,7 +579,7 @@ def test_all_providers_down_is_empty_unavailable_not_fallback(monkeypatch, sync_
     data = sync_build()
     assert data["source"] == "unavailable"
     assert data["jobs"] == []
-    assert len([p for p in data["providers"] if p["status"] == "failed"]) == 6
+    assert len([p for p in data["providers"] if p["status"] == "failed"]) == 7
 
 
 def test_secrets_never_reach_response_or_status(monkeypatch, sync_build):
@@ -825,6 +827,7 @@ def test_ranking_reasons_reflect_actual_signals():
 
 def test_provider_statuses_distinguish_ok_failed_skipped(monkeypatch, sync_build):
     _reset_feed()
+    recent = date.today().isoformat()
     monkeypatch.setenv("JSEARCH_API_KEY", "rapid-key")
     for var in ("RAPIDAPI_KEY", "ADZUNA_APP_ID", "ADZUNA_APP_KEY",
                 "JOOBLE_API_KEY", "USAJOBS_API_KEY"):
@@ -840,7 +843,7 @@ def test_provider_statuses_distinguish_ok_failed_skipped(monkeypatch, sync_build
                 "job_employment_types": ["FULLTIME"],
                 "job_employment_type": "",
                 "job_publisher": "GulfTalent",
-                "job_posted_at_datetime_utc": "2026-08-21T10:00:00.000Z",
+                "job_posted_at_datetime_utc": f"{recent}T10:00:00.000Z",
                 "job_city": "Cairo", "job_state": "", "job_country": "Egypt",
                 "job_description": "Use Excel dashboards and SQL daily.",
             }]}})

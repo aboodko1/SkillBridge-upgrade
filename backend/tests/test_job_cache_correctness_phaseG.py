@@ -60,6 +60,29 @@ def _bg(monkeypatch, recorded):
     monkeypatch.setattr(jobs, "_background_fetch", lambda *a, **k: recorded.append(a[0]))
 
 
+def test_bright_data_provider_slice_survives_global_top_n_and_is_actionable(monkeypatch):
+    rows = [
+        {"title": "AI Engineer", "source": "Remotive", "provider": "Remotive",
+         "fingerprint": f"global-{i}", "location_tier": "country",
+         "listing_status": "live"} for i in range(3)
+    ] + [{"title": "AI Engineer", "source": "Bright Data", "provider": "Bright Data",
+          "fingerprint": "egypt-provider", "location_tier": "country",
+          "listing_status": "live", "country": "Egypt"}]
+    _fetch(monkeypatch, statuses={"Bright Data": ("ok", "")}, jobs_out=rows)
+    monkeypatch.setattr(jobs, "_merge", lambda raw: raw)
+    monkeypatch.setattr(jobs, "_apply", lambda rows, *a, **k: rows)
+    monkeypatch.setattr(jobs, "_rerank_score", lambda *a, **k: 1)
+    profile = dict(skills=[("Python", "Beginner")], role="AI Engineer", country="Egypt",
+                   location="Cairo", role_requisites=(), market_country="eg", limit=2)
+    result = jobs.recent_jobs(**profile, _sync=True)
+    assert all(j["provider"] == "Remotive" for j in result["jobs"])
+    assert [j["fingerprint"] for j in result["provider_jobs"]["Bright Data"]] == ["egypt-provider"]
+    args = (profile["skills"], profile["role"], profile["country"], profile["location"],
+            profile["role_requisites"], profile["market_country"], "egypt-provider")
+    assert jobs.locate_feed_job(*args, limit=2)["country"] == "Egypt"
+    assert jobs.peek_feed_job(*args, limit=2)["found"] is True
+
+
 # ---------------------------------------------------------------------- 
 # G1 — canonical key completeness (levels / verified / limit / market / tag)
 # ---------------------------------------------------------------------- 
@@ -136,10 +159,12 @@ def test_statuses_fresh_cached(monkeypatch):
                             country="Egypt", limit=5, _sync=True)
     assert out1["status"] == "fresh"
     assert out1["source"] == "live"
+    assert out1["checked_at"].endswith("Z")
     out2 = jobs.recent_jobs(skills=[("SQL", "Beginner")], role="Data Analyst",
                             country="Egypt", limit=5, _sync=False)
     assert out2["status"] == "cached"
     assert out2["jobs"] == out1["jobs"]
+    assert out2["checked_at"] == out1["checked_at"]
     assert bg_calls == []                      # a fresh cached row is never refetched
 
 
@@ -158,6 +183,7 @@ def test_stale_fallback_serves_last_data_and_refreshes_once(monkeypatch):
     assert out["status"] == "stale_fallback"
     assert out["source"] == "live"             # original honest source preserved
     assert out["jobs"]                          # last good data served, never emptied
+    assert out["checked_at"] == jobs._cache[key]["data"]["checked_at"]
     with jobs._lock:
         assert key in jobs._bg_fetching         # one in-flight refresh, deduped
     jobs.recent_jobs(skills=[("SQL", "Beginner")], role="Data Analyst",

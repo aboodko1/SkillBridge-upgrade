@@ -239,6 +239,31 @@ mobile 390, consoles clean):
 
 ### Saved jobs & private application tracker (Phase K)
 
+The job feed also includes a no-key **Employer boards** provider for selected
+Egypt-based openings on Bosta and e.construct (Lever) and Careem (Greenhouse).
+It reads the employers' public career-board APIs, keeps only listings explicitly
+located in Egypt, and links to the original employer application page. This is
+not a Wuzzuf or LinkedIn integration. The browser checks SkillBridge's own job
+endpoint again after a cold-cache/background refresh and shows when providers
+were last checked; the backend's normal cache still limits upstream requests.
+When the feed has no verified match, the UI offers clearly labelled external
+searches on LinkedIn and Wuzzuf, without presenting their search results as
+SkillBridge listings. Provider availability and job openings can change, so
+the source site remains authoritative at application time.
+
+An optional **Bright Data Google Jobs** adapter is also available for Egypt.
+It needs both `BRIGHTDATA_API_KEY` and the exact `BRIGHTDATA_SERP_ZONE` in the
+local, git-ignored `.env`; a key without an active SERP zone does not enable it.
+It makes up to three Egypt-localized Google searches per cache build (nationwide,
+Cairo, and Alexandria), deduplicates the results, and accepts only explicit
+structured jobs with a real listing URL and Egypt location evidence. If one
+search fails, successful searches can still supply results. The Bright Data
+filter shows its own bounded results, even when they fall outside the combined
+feed's top 16. This is a sample for the user's target role, not an exhaustive
+listing of every Egyptian job. Other providers remain available as fallbacks.
+The key is never sent to the browser. Verify the zone's usage allowance in
+Bright Data before enabling it.
+
 Every "Recent roles for you" row now has a **Save** button that files the actual
 feed snapshot into your private **Applications tracker** — the pipeline snapshot
 is stored at save time and never re-derived, so the record stays honest even if

@@ -592,7 +592,9 @@ export interface ProviderReport {
 
 export interface RecentJobsResponse {
   source: 'live' | 'empty' | 'unavailable' | 'no-cv'
+  checked_at?: string
   jobs: RecentJob[]
+  provider_jobs?: Record<string, RecentJob[]>
   groups?: { local_count: number; broader_count: number; other_count: number }
   providers?: ProviderReport[]
   status?: 'fresh' | 'cached' | 'stale_fallback' | 'unavailable'

@@ -162,6 +162,9 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
 
   useEffect(() => {
     if (!me?.student?.id || !hasCvSkills) return
+    let cancelled = false
+    let inFlight = false
+    let timer: number | undefined
     setData(null)
     setTried(false)
     setErr('')
@@ -169,9 +172,47 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
     const s = me.student as any
     const location = s?.location || (me as any)?.location || ''
     const country = s?.country || (me as any)?.country || ''
-    api.recentJobs({ location, country, market, limit: 16 })
-      .then((d) => { setData(d); setTried(true) })
-      .catch((e) => { console.error('[dashboard] recent jobs failed:', e); setErr(e.message || String(e)); setData(null); setTried(true) })
+    const schedule = (delay: number) => {
+      if (!cancelled) timer = window.setTimeout(fetchJobs, delay)
+    }
+    const fetchJobs = async () => {
+      if (cancelled || inFlight) return
+      if (document.hidden) { schedule(60_000); return }
+      inFlight = true
+      try {
+        const next = await api.recentJobs({ location, country, market, limit: 16 })
+        if (cancelled) return
+        setData(next)
+        setTried(true)
+        setErr('')
+        // A cold cache starts a single background provider fetch. Poll only
+        // our own endpoint until it completes; the server deduplicates work.
+        const building = next.status === 'stale_fallback' ||
+          (next.status === 'unavailable' && !next.providers?.length)
+        schedule(building ? 5_000 : 60_000)
+      } catch (e: any) {
+        if (cancelled) return
+        console.error('[dashboard] recent jobs failed:', e)
+        setErr(e.message || String(e))
+        setTried(true)
+        schedule(60_000)
+      } finally {
+        inFlight = false
+      }
+    }
+    const onVisible = () => {
+      if (document.hidden) return
+      window.clearTimeout(timer)
+      // A tab left open overnight should check the server on return.
+      if (!inFlight) fetchJobs()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    fetchJobs()
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [me?.student?.id, cvKey, market, retryJobs])
 
   // Re-run the live-feed request without making a student reload the whole app.
@@ -186,6 +227,24 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
   const openJob = (j: RecentJob) => {
     applyCopilot({ page: 'jobs', skillId: null, competency: null, jobTitle: j.title, jobUrl: j.url || null })
   }
+
+  const externalRole = student?.target_role?.title || 'entry level jobs'
+  const externalLocation = market === 'eg' ? 'Egypt' : (student as any)?.location || (me as any)?.location ||
+    (student as any)?.country || (me as any)?.country || 'Egypt'
+  const linkedInSearch = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(externalRole)}&location=${encodeURIComponent(externalLocation)}`
+  const wuzzufSearch = `https://wuzzuf.net/search/jobs/?q=${encodeURIComponent(`${externalRole} ${externalLocation}`)}`
+  const externalSearchLinks = (
+    <p className="small muted">
+      Search directly on{' '}
+      <a href={linkedInSearch} target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      {' or '}
+      <a href={wuzzufSearch} target="_blank" rel="noopener noreferrer">Wuzzuf</a>.
+      {' '}These open external searches; their results are not verified SkillBridge listings.
+    </p>
+  )
+  const checkedAt = data?.checked_at ? new Date(data.checked_at) : null
+  const checkedLabel = checkedAt && !Number.isNaN(checkedAt.getTime())
+    ? `Providers checked ${checkedAt.toLocaleString()}` : ''
 
   // Phase Q (D4): Prepare opens the grounded readiness dialog; focus returns to
   // the clicked button when it closes. The old "hop to the Skills hub" gone.
@@ -209,10 +268,15 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
     }
   }
 
-  const providers = useMemo(() => Array.from(new Set((data?.jobs || []).map((j) => j.provider || j.source).filter(Boolean))) as string[], [data])
-  const workTypes = useMemo(() => Array.from(new Set((data?.jobs || []).map((j) => j.work_type || j.workplace_type || j.employment_type).filter(Boolean))) as string[], [data])
-  const seniorities = useMemo(() => Array.from(new Set((data?.jobs || []).map((j) => j.seniority).filter(Boolean))) as string[], [data])
-  const filteredJobs = useMemo(() => (data?.jobs || []).filter((j) => {
+  const providers = useMemo(() => Array.from(new Set([
+    ...(data?.jobs || []).map((j) => j.provider || j.source),
+    ...(market === 'eg' && data?.providers?.some((p) => p.source === 'Bright Data' && p.status !== 'skipped') ? ['Bright Data'] : []),
+  ].filter(Boolean))) as string[], [data, market])
+  const feedJobs = provider === 'Bright Data' && market === 'eg'
+    ? (data?.provider_jobs?.['Bright Data'] || []) : (data?.jobs || [])
+  const workTypes = useMemo(() => Array.from(new Set(feedJobs.map((j) => j.work_type || j.workplace_type || j.employment_type).filter(Boolean))) as string[], [feedJobs])
+  const seniorities = useMemo(() => Array.from(new Set(feedJobs.map((j) => j.seniority).filter(Boolean))) as string[], [feedJobs])
+  const filteredJobs = useMemo(() => feedJobs.filter((j) => {
     const hay = [j.title, j.company, j.location, j.provider, ...(j.tags || []), ...(j.required_skills || [])].join(' ').toLowerCase()
     const days = j.listed_days_ago
     const freshEnough = !freshness || (days != null && days <= Number(freshness))
@@ -221,7 +285,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
       (!seniority || j.seniority === seniority) && freshEnough && (j.match_pct ?? 0) >= minMatch &&
       (!savedOnly || (!!j.fingerprint && savedFps.has(j.fingerprint))) &&
       (!savedState || (!!j.fingerprint && stageByFp[j.fingerprint] === savedState))
-  }), [data, q, provider, workType, seniority, freshness, minMatch, savedOnly, savedState, savedFps, stageByFp])
+  }), [feedJobs, q, provider, workType, seniority, freshness, minMatch, savedOnly, savedState, savedFps, stageByFp])
   const pageSize = 8
   const pageCount = Math.max(1, Math.ceil(filteredJobs.length / pageSize))
   const pagedJobs = filteredJobs.slice(page * pageSize, page * pageSize + pageSize)
@@ -289,6 +353,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
         </div>
         {err && <div className="error phase7-retry-notice" role="alert"><span>{err}</span><button type="button" className="btn btn-sm btn-secondary" onClick={retryLiveJobs}>Retry jobs</button></div>}
         {data?.status === 'cached' && <p className="pulse-feed-note">Recently cached listings · availability may change</p>}
+        {checkedLabel && <p className="pulse-feed-note">{checkedLabel}{data?.status === 'stale_fallback' ? ' · refreshing' : ''}</p>}
       </section>
     )
   }
@@ -325,6 +390,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
       </div>
       {data?.status === 'cached' && <p className="small muted">Showing a recently cached result while providers are protected from repeated requests.</p>}
       {data?.status === 'stale_fallback' && <p className="small muted">Showing your last available result while the feed refreshes in the background.</p>}
+      {checkedLabel && <p className="small muted">{checkedLabel} · Listing availability may change on the source site.</p>}
       <button type="button" className="btn btn-sm btn-secondary jobn-mobile-trigger" onClick={() => setFiltersOpen(true)}>Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
       {filtersOpen && <div className="jobn-filter-backdrop" onMouseDown={() => setFiltersOpen(false)} />}
       <div className={`jobn-filterbar${filtersOpen ? ' is-open' : ''}`} aria-label="Job filters" onKeyDown={(e) => { if (e.key === 'Escape') setFiltersOpen(false) }}>
@@ -341,6 +407,7 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
         <button type="button" className="btn btn-sm btn-secondary" onClick={showHealth}>Provider status</button>
       </div>
       {tried && data && <p className="small muted" aria-live="polite">{filteredJobs.length} matching job{filteredJobs.length === 1 ? '' : 's'} shown</p>}
+      {provider === 'Bright Data' && market === 'eg' && <p className="small muted">Egypt listings returned by Bright Data for your target role. This is a live search sample, not every available job in Egypt.</p>}
       {err && <div className="error phase7-retry-notice" role="alert" style={{ marginBottom: 10 }}><span>{err}</span><button type="button" className="btn btn-sm btn-secondary" onClick={retryLiveJobs}>Retry jobs</button></div>}
       {tried && data?.providers && data.providers.length > 0 && (() => {
         const h = feedHealth(data.providers)
@@ -449,11 +516,16 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
           })}
           {pageCount > 1 && <div className="jobn-pages"><button type="button" className="btn btn-sm btn-secondary" disabled={page === 0} onClick={() => setPage((n) => n - 1)}>Previous</button><span className="small muted">Page {page + 1} of {pageCount}</span><button type="button" className="btn btn-sm btn-secondary" disabled={page + 1 >= pageCount} onClick={() => setPage((n) => n + 1)}>Next</button></div>}
         </div>
-      ) : data && data.jobs.length > 0 ? (
+      ) : data && feedJobs.length > 0 ? (
         <div className="empty">No jobs match these filters. Clear filters to see the current feed.</div>
+      ) : provider === 'Bright Data' && market === 'eg' && data?.providers?.some((p) => p.source === 'Bright Data' && p.status === 'failed') ? (
+        <div><div className="empty">Bright Data did not return Egypt listings this time. Other providers are unaffected.</div><div className="phase7-retry-action"><button type="button" className="btn btn-sm btn-secondary" onClick={retryLiveJobs}>Retry live jobs</button></div></div>
+      ) : provider === 'Bright Data' && market === 'eg' ? (
+        <div className="empty">Bright Data returned no matching Egypt listings for this target role right now. Try a broader role or check again later.</div>
       ) : data?.source === 'empty' ? (
         <div>
           <div className="empty">No live roles matched this search right now — nothing is invented to fill the list.</div>
+          {externalSearchLinks}
           {data.providers && data.providers.some((p) => p.status === 'failed') ? (
             <p className="small muted" style={{ marginTop: 8 }}>
               Unavailable now: {data.providers.filter((p) => p.status === 'failed').map((f) => f.source).join(', ')}.
@@ -462,7 +534,8 @@ function JobsCard({ student, onSaved, onNavigate, compact = false }: { student?:
         </div>
       ) : data?.source === 'unavailable' ? (
         <div>
-          <div className="empty">Live job providers are temporarily unavailable. Try again shortly.</div>
+          <div className="empty">{data.status === 'unavailable' && !data.providers?.length ? 'Checking job providers now…' : 'Live job providers are temporarily unavailable. Try again shortly.'}</div>
+          {externalSearchLinks}
           <div className="phase7-retry-action"><button type="button" className="btn btn-sm btn-secondary" onClick={retryLiveJobs}>Retry live jobs</button></div>
           {data.providers && data.providers.some((p) => p.status === 'failed') ? (
             <p className="small muted" style={{ marginTop: 8 }}>
