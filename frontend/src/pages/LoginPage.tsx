@@ -49,6 +49,7 @@ export default function LoginPage() {
   return (
     <div className="login-split">
       <aside className="login-hero-panel">
+        <div className="login-ambient" aria-hidden="true" />
         <div className="hero-logo">
           <BrandLogo />
         </div>
@@ -61,9 +62,11 @@ export default function LoginPage() {
         </div>
         <div className="login-story" aria-label="Explore how SkillBridge works">
           <div className="login-story-top"><span>THE SKILLBRIDGE JOURNEY</span><span>{LOGIN_STORY[storyStep].number} / 03</span></div>
-          <div className="login-story-icon" aria-hidden="true">{LOGIN_STORY[storyStep].icon}</div>
-          <h2>{LOGIN_STORY[storyStep].title}</h2>
-          <p>{LOGIN_STORY[storyStep].body}</p>
+          <div className="login-story-content" key={storyStep}>
+            <div className="login-story-icon" aria-hidden="true">{LOGIN_STORY[storyStep].icon}</div>
+            <h2>{LOGIN_STORY[storyStep].title}</h2>
+            <p>{LOGIN_STORY[storyStep].body}</p>
+          </div>
           <div className="login-story-steps" role="group" aria-label="Journey steps">
             {LOGIN_STORY.map((step, index) => (
               <button key={step.number} type="button" className={storyStep === index ? 'active' : ''} aria-pressed={storyStep === index} onClick={() => setStoryStep(index)}>
