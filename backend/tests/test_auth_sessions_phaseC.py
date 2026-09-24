@@ -239,7 +239,7 @@ def test_migration_0002_on_fresh_db(tmp_path):
         applied = [m["migration_id"] for m in database.applied_migrations()]
         assert applied == ["0001_baseline_implied_schema", "0002_auth_sessions",
                            "0003_canonical_roles", "0004_esco_import",
-                           "0005_company_role_mapping", "0006_saved_jobs_tracker", "0007_role_view_events", "0008_job_link_reports", "0009_copilot_config", "0010_copilot_onboarding", "0011_mentor_keys", "0012_tutor_memory", "0013_tutor_conversations", "0014_conversation_live_meta", "0015_student_tour_state", "0016_mentor_ui_preferences"]
+                           "0005_company_role_mapping", "0006_saved_jobs_tracker", "0007_role_view_events", "0008_job_link_reports", "0009_copilot_config", "0010_copilot_onboarding", "0011_mentor_keys", "0012_tutor_memory", "0013_tutor_conversations", "0014_conversation_live_meta", "0015_student_tour_state", "0016_mentor_ui_preferences", "0017_cv_text"]
         tables = {r["name"] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert "auth_sessions" in tables
@@ -293,7 +293,7 @@ def test_migration_0002_backs_out_on_failure(tmp_path):
                                              "0002_auth_sessions", "0003_canonical_roles",
                                              "0004_esco_import", "0005_company_role_mapping",
                                              "0006_saved_jobs_tracker",
-                                             "0007_role_view_events", "0008_job_link_reports", "0009_copilot_config", "0010_copilot_onboarding", "0011_mentor_keys", "0012_tutor_memory", "0013_tutor_conversations", "0014_conversation_live_meta", "0015_student_tour_state", "0016_mentor_ui_preferences"]
+                                             "0007_role_view_events", "0008_job_link_reports", "0009_copilot_config", "0010_copilot_onboarding", "0011_mentor_keys", "0012_tutor_memory", "0013_tutor_conversations", "0014_conversation_live_meta", "0015_student_tour_state", "0016_mentor_ui_preferences", "0017_cv_text"]
     finally:
         database.set_db_for_test()
         conn.close()

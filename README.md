@@ -1,123 +1,120 @@
 <div align="center">
-  <img src="frontend/public/skillbridge-mark.svg" width="84" alt="SkillBridge logo" />
+  <img src="frontend/public/skillbridge-mark.svg" width="78" alt="SkillBridge logo" />
 
 # SkillBridge
 
-### Learn with direction. Practise with purpose. Prove what you can do.
+**Choose a direction. Build the skills. Show the evidence.**
 
-[![React](https://img.shields.io/badge/React-TypeScript-149eca?style=for-the-badge&logo=react&logoColor=white)](#stack)
-[![FastAPI](https://img.shields.io/badge/FastAPI-Python-009688?style=for-the-badge&logo=fastapi&logoColor=white)](#stack)
-[![SQLite](https://img.shields.io/badge/SQLite-Local--first-07405e?style=for-the-badge&logo=sqlite&logoColor=white)](#stack)
-![Status](https://img.shields.io/badge/Status-Educational_prototype-f97316?style=for-the-badge)
+An AI-assisted career-readiness prototype connecting students, employers, and
+universities through one practical learning-to-opportunity journey.
 
-**A GenAI-powered career-readiness workspace connecting students, employers, and universities through one evidence-based journey.**
-
+[Explore the experience](#the-experience) · [See how it works](#how-it-works) · [Run locally](#run-it-locally) · [Demo walkthrough](#five-minute-demo)
 </div>
 
-![SkillBridge Dark Pulse student dashboard](docs/screenshots/00-dark-pulse-dashboard.png)
-
 <p align="center">
-  <sub>Casual Pulse · Dark mode — captured from the running SkillBridge application.</sub>
+  <img src="docs/screenshots/00-dark-pulse-dashboard.png" alt="SkillBridge student dashboard in Casual Pulse dark mode" width="900" />
 </p>
 
-## From learning to verified opportunity
+> **Project status:** educational prototype. SkillBridge demonstrates career
+> exploration, learning, in-app assessment, and job discovery. It is not a
+> professional credential issuer, hiring guarantee, or production proctoring
+> service.
 
-SkillBridge closes the gap between university learning and real role requirements. Companies
-define the skills a role needs, students discover their gaps, GenAI builds a personalized path,
-and assessments turn demonstrated ability into a **Verified Skill Profile**. Every completed step
-improves the student's evidence and makes the next action clear.
+## The problem we solve
 
-| Discover | Learn | Prove | Progress |
-|:--:|:--:|:--:|:--:|
-| Explore roles and understand skill gaps | Follow personalized learning and role-based practice | Complete integrity-aware assessments | Track readiness, jobs, and private applications |
+Students often have courses, a CV, and job listings—but no clear way to connect
+them. SkillBridge turns a target role into an understandable skill gap, a next
+learning step, evidence from practice and assessments, and relevant opportunities.
+Each part leads to the next instead of becoming another disconnected dashboard.
 
-> This repository is an educational prototype demonstrating the full loop end to end. It is not
-> presented as a production hiring or credentialing platform.
+| For students | For employers | For universities |
+|---|---|---|
+| Discover roles, learn toward a goal, practise, and track applications | Define role requirements and inspect candidate matches | View anonymized cohort skill-gap trends |
 
-> **Team handoff:** start with [`TEAM_HANDOFF_CURRENT_STATUS.md`](TEAM_HANDOFF_CURRENT_STATUS.md).
-> It records the verified build, the exact known UI/accessibility debt, and the next safe work.
-
-## What makes SkillBridge different
-
-- A responsive student workspace with **Professional** and **Casual Pulse** presentation modes,
-  light/dark/system appearance, role discovery, a unified career journey, learning paths,
-  practice scenarios, assessments, jobs, and a private application tracker.
-- A configurable **AI copilot** with four mentor personalities, conversation history, English/Arabic
-  behavior, live speech controls, interview mode, onboarding, and user-controlled collapse/expand.
-- **Explainable readiness and job-match scores** backed by backend calculations rather than
-  decorative frontend percentages.
-- **Company role authoring and candidate matching**, plus anonymized university cohort analytics.
-- Hardened auth sessions, ordered SQLite migrations, provider-health reporting, request-scoped
-  diagnostics, safe job links, and deterministic offline fallbacks for prototype use.
+## The experience
 
 ```mermaid
 flowchart LR
-  C[Company role requirements] --> M[Skill and role matching]
-  S[Student profile and CV] --> M
-  M --> J[Unified career journey]
-  J --> L[Learn and practise]
-  L --> A[Assessment]
-  A --> V[Verified skill profile]
-  V --> M
-  M --> O[Jobs and application tracker]
-  U[University analytics] -. anonymized .-> V
+    R[Choose a target role] --> G[See skill gaps and score explanation]
+    G --> L[Follow a focused learning path]
+    L --> P[Practise real decisions]
+    P --> A[Take an in-app assessment]
+    A --> E[See verified vs. self-reported evidence]
+    E --> J[Explore jobs and track applications]
+    J -. New requirements .-> G
 ```
 
-## Product tour
+- **Career direction:** search and compare roles, inspect required skills and
+  provenance, then choose a target. Match-score breakdowns explain the number
+  shown on screen.
+- **Focused learning:** a personalized plan highlights the next step. Lessons,
+  resources, practice, and mini-checks are presented in manageable stages.
+- **Evidence, not just claims:** CV-derived skills remain *self-reported*.
+  In-app assessments can mark a skill *verified within SkillBridge*; practice
+  alone cannot do that.
+- **AI mentors:** Nova, Axel, Sage, and Vex support conversation and interview
+  practice. Text can work with a configured AI provider or a labelled local
+  fallback; live speech requires working browser/provider support and quota.
+- **Opportunities:** the job feed combines supported external providers and
+  selected public employer boards. Listings show their source and status; users
+  can save a listing and privately track application stages.
+- **Two looks, one product:** Professional and Casual Pulse presentation modes
+  include light, dark, and system appearance. The responsive UI includes
+  English/Arabic mentor behavior and RTL support where implemented.
 
-The gallery now follows one consistent **Casual Pulse · Dark** visual system. Every image below
-comes from the running application at a tested desktop or mobile viewport.
+<details>
+<summary><strong>Open the product gallery</strong></summary>
 
-| | |
+| Find a role | Learn toward it |
 |---|---|
-| **Discover a target role** | **Build a personalized learning path** |
-| ![Dark Pulse role discovery](docs/screenshots/01-dark-pulse-role-discovery.png) | ![Dark Pulse learning workspace](docs/screenshots/02-dark-pulse-learning.png) |
-| **Practise role-specific decisions** | **Turn claims into verified evidence** |
-| ![Dark Pulse practice scenarios](docs/screenshots/03-dark-pulse-practice.png) | ![Dark Pulse assessments](docs/screenshots/04-dark-pulse-assessments.png) |
-| **Match company roles with candidates** | **Stay focused on mobile** |
-| ![Dark Pulse company matching dashboard](docs/screenshots/05-dark-pulse-company.png) | <p align="center"><img src="docs/screenshots/06-dark-pulse-mobile.png" width="280" alt="Dark Pulse mobile dashboard" /></p> |
+| <img src="docs/screenshots/01-dark-pulse-role-discovery.png" alt="Role discovery screen" width="440" /> | <img src="docs/screenshots/02-dark-pulse-learning.png" alt="Focused learning screen" width="440" /> |
+| Practise decisions | Review assessments |
+| <img src="docs/screenshots/03-dark-pulse-practice.png" alt="Practice scenario screen" width="440" /> | <img src="docs/screenshots/04-dark-pulse-assessments.png" alt="Assessments screen" width="440" /> |
 
-## Stack
+<img src="docs/screenshots/06-dark-pulse-mobile.png" alt="SkillBridge mobile layout" width="250" />
 
-- **Backend:** FastAPI (Python) + SQLite (stdlib `sqlite3`), no cloud dependency.
-- **Frontend:** React + TypeScript (Vite), served by the FastAPI app.
-- **GenAI:** real API calls (Anthropic or OpenAI) for the four touchpoints, with a
-  deterministic fallback when no key is set.
+</details>
 
-## Project structure
+## How it works
 
-```
-backend/
-  app/
-    main.py        FastAPI app + all routes + SPA static serving + university stats
-    database.py    SQLite schema + migration + shared connection
-    models.py      data layer (CRUD + learning/tutor/assessment/verified helpers)
-    matching.py    skill-gap + job match engine
-    integrity.py   proctoring flag heuristics (tab-switch, timing, AI-text detection)
-    genai.py       the four GenAI touchpoints (live call + deterministic fallback)
-    auth.py        password hashing, session/reset tokens, Google OAuth client
-    mailer.py      SMTP email delivery (verification + password reset)
-    resources.py   curated learning resources for learning-path items
-    seed.py        realistic sample data + country -> university reference list
-  tests/           unit tests (CRUD, matching, extraction, learning, assessment, university)
-frontend/
-  src/
-    pages/         Login, Dashboard, Skills & Roles, Learning, Assessments, University
-    lib/           api client + types
-    components/    icons + UI widgets
-    AppContext.tsx auth/session state shared across the app
-scripts/
-  setup.sh          one-time env setup (idempotent)
-  test-backend.sh   run all backend unit tests
-  verify.sh         run an end-to-end API verification against a fresh server
-  start.sh          single-command startup
+```mermaid
+flowchart TB
+    subgraph People
+      Student[Student]
+      Employer[Employer]
+      University[University admin]
+    end
+    subgraph App[SkillBridge application]
+      UI[React + TypeScript interface]
+      API[FastAPI service]
+      Core[Role matching · Learning · Assessments · Jobs]
+      DB[(SQLite: accounts, profiles, progress, tracker)]
+    end
+    subgraph Optional[Optional external services]
+      AI[AI text provider]
+      Voice[Speech provider]
+      Jobs[Job APIs and public employer boards]
+      Mail[SMTP email]
+    end
+    Student & Employer & University --> UI
+    UI -->|authenticated requests| API
+    API --> Core --> DB
+    Core -. configured calls .-> AI & Voice & Jobs
+    API -. if configured .-> Mail
 ```
 
-## Run (simplest — one command, works everywhere)
+The backend owns authorization, score calculations, assessment results, and
+private application records. The frontend displays those results; it does not
+award verified skills merely because a student completed a lesson or scenario.
+External providers are optional and may be unavailable or rate-limited.
 
-**One command** starts the whole app (frontend + backend + seeded database) and opens it in
-your browser. It works the same in **VS Code PowerShell, cmd, Git Bash, WSL, macOS, and Linux**
-— no long setup, no separate steps.
+Technical reviewers can follow the request flow and evidence boundaries in
+[`docs/architecture.md`](docs/architecture.md).
+
+## Run it locally
+
+Requires **Node.js 18+** and **Python 3.10+** on macOS, Windows, or Linux.
+From a fresh clone:
 
 ```bash
 git clone https://github.com/aboodko1/SkillBridge-upgrade.git
@@ -125,309 +122,86 @@ cd SkillBridge-upgrade
 npm start
 ```
 
-Then open **<http://localhost:8000>** (it automatically picks another port like 8001 if 8000
-is already in use).
+The first run sets up dependencies, builds the frontend, seeds a local SQLite
+demo database, and prints the URL (normally <http://localhost:8000>; another
+port is selected if it is occupied). No paid API is needed to explore the local
+demo. Optional AI, voice, jobs, Google sign-in, and email services are configured
+through a **local, ignored** `.env` based on [`.env.example`](.env.example).
+Never commit real keys or databases.
 
-> Prerequisites: **Node.js 18+** and **Python 3.10+** (both on your PATH). That's it —
-> everything else (the Python virtual environment, frontend dependencies, and sample database)
-> is installed automatically on the first run.
+| Command | Purpose |
+|---|---|
+| `npm start` | Build and run the local app |
+| `npm start -- --dev` | Run with frontend live reload |
+| `npm start -- --no-build` | Reuse an existing frontend build |
+| `npm start -- --port 9000` | Choose a port |
 
-What `npm start` does automatically (only the first time — after that it's fast):
+**Data warning:** `npm start -- --reset` deletes the local demo database before
+reseeding it. Back up any data you need first.
 
-1. Creates a Python virtual environment (`.venv`) with all backend dependencies.
-2. Installs frontend dependencies and builds the frontend.
-3. Seeds the SQLite database with realistic sample data.
-4. Starts the server and prints the URL to open.
+## Five-minute demo
 
-> Everything runs locally with just SQLite — no cloud dependency, no account needed.
+Seeded demo accounts use the password `demo1234`. These are **local demo-only
+credentials**; never use them for a public deployment.
 
-Useful options:
+| View | Email |
+|---|---|
+| Student | `aisha@student.edu` |
+| Employer | `hr@northstar.com` |
+| University admin | `admin@univ.edu` |
 
-```bash
-npm start -- --reset      # wipe the database and re-seed fresh sample data
-npm start -- --dev        # run the Vite dev server (live frontend reload)
-npm run setup             # install dependencies only, then exit
-npm start -- --port 9000  # run on a specific port
-```
+1. **Student:** sign in, explore a target role, and open **How is this score
+   built?** to see the skills behind its match percentage.
+2. **Learning:** follow the highlighted next step, then try a practice scenario
+   and review why each decision mattered.
+3. **Assessment:** inspect the rules and attempt a skill check. The final
+   assessment uses a camera permission gate and local integrity signals; it is
+   an in-app check, not biometric identity verification. If camera permission
+   is unavailable, show the guided learning and practice flow instead.
+4. **Jobs:** view a sourced listing, or explain the provider/cached/empty state
+   honestly, then save a listing to the private application tracker.
+5. **Other views:** sign in as Employer to see role requirements and candidate
+   matching, then University admin for anonymized cohort trends.
 
-The other entry points (`start.sh`, `start.ps1`, `start.bat`) are just thin wrappers that call
-the same `npm start` — you never need them.
+For a more detailed team handoff, see [`docs/team/`](docs/team/README.md).
 
-### Demo accounts (password for all: `demo1234`)
+## Trust and current limits
 
-| Role             | Email                |
-|------------------|----------------------|
-| Student          | aisha@student.edu    |
-| Student          | omar@student.edu     |
-| Company          | hr@northstar.com     |
-| Company          | hr@signal.com        |
-| University Admin | admin@univ.edu       |
+- **In-app verification is not an external credential.** Assessment scores and
+  camera/browser signals are heuristics, not proof of identity or an anti-cheat
+  guarantee. Camera analysis is local during an attempt; the app states that
+  video is not recorded or stored.
+- **Job coverage is partial.** Bright Data requires an API key *and* an active
+  SERP zone; other providers and public employer boards have their own coverage
+  and availability. SkillBridge does not claim to scrape LinkedIn or Wuzzuf, or
+  list every opening in Egypt. The original posting is the source of truth.
+- **AI and voice depend on configuration.** Deterministic fallbacks keep the
+  prototype explorable, but should not be presented as live model output.
+- **Localization is in progress.** English/Arabic mentor experiences and RTL
+  support exist, but not every screen is fully translated. There is no native
+  mobile app, payment system, or calendar integration.
 
-### Try the full loop (~5 minutes)
+See [`docs/job-providers.md`](docs/job-providers.md) for provider behavior and
+[`SECURITY.md`](SECURITY.md) for security reporting.
 
-1. **Company** — log in as `hr@northstar.com` → **Skills & Roles** → define a role
-   (name + required skills + proficiency levels). It persists after refresh.
-2. **Student** — log in as `aisha@student.edu` → **Skills & Roles** → **Upload CV**
-   (any `.txt` transcript listing skills works, e.g. a line like
-   `Python (Advanced), Machine Learning (Intermediate)`). GenAI extracts a
-   self-reported skill profile, visibly labelled **self-reported** (outline tag),
-   then pick **Junior AI Engineer** as your Target Career.
-3. **See the match** — back on the **Dashboard**: the Career Readiness score, the
-   Skill Gap Map (strong / gap / missing), and the My Learning Activity card.
-4. **Learn** — open a gap on the **Learning** page: explanation + curated resources
-   + roadmap, then chat with the **AI Tutor** (replies use your context).
-5. **Get Verified** — from **Assessments**, start an assessment for a gap skill and
-   answer the questions. On a pass (≥70%) the skill moves from self-reported to a
-   green **Verified** tag and the match score recalculates.
-6. **Flags** — on a fresh attempt, switch tabs mid-quiz (or paste an AI-style
-   answer): the result screen logs **Integrity flags raised** (tab switch + AI-text),
-   showing the proctoring around assessment attempts.
-7. **University** — log in as `admin@univ.edu` → **University Dashboard**: only
-   anonymized, aggregated skill-gap stats across the cohort — no individual data.
-
-### Practice Scenarios & the connected journey (Phases 4–6)
-
-Demonstrated against the live server (desktop 1440, tablet 820, mobile 390; consoles clean):
-
-1. **Practice Scenarios** (`Practice` / ⚡): role-relevant branching scenarios for
-   every target role (data, AI, security, cloud/DevOps, marketing, finance, design,
-   project/ops, plus deterministic role-specific blueprints). Cybersecurity
-   scenarios surface only for cybersecurity-relevant profiles. Each card carries a
-   family pill, difficulty, estimated time and skill tags; the player explains
-   every decision with consequences, transparent hint scoring ("each hint reduces
-   your score by 3 points, capped at 9"), save-and-resume, and History.
-2. **Results** explain overall score, per-competency bars, strengths/improvements,
-   decision-by-decision review, match before/after, and a recommended follow-up
-   (weakest competency named; deep-links to Learning/Assessments when that
-   competency maps to a real skill — never fabricated).
-3. **Connected journey**: from **Skills & Roles** the role-detail drawer resolves
-   the most important missing skill from the live gap analysis and routes
-   **Start learning** → Learning (focused), **Verify a Skill** → Assessments
-   (focused, item highlighted), and **Practice this role** → Scenarios (enabled
-   only for the actual target career; other roles get an honest unlock nudge).
-   The Dashboard **Recommended Next Step** Go button routes into the same pages.
-   Breadcrumbs return to the journey root — no learning↔scenarios loops.
-4. **Honesty invariants**: scenario practice lifts *self-reported* confidence only
-   and never awards a Verified tag; "Take the Assessment" never implies readiness
-   guarantees; nothing auto-changes the target role.
-
-### Explainable matching (Phase J)
-
-Every displayed role/job match now opens a **"How is this score built?"**
-disclosure that decomposes the number into the exact labelled parts the backend
-used — no score is recomputed or changed client-side; the payload is the same
-math that produced the ring. Verified against the live server (desktop 1440 +
-mobile 390, consoles clean):
-
-1. **Dashboard target-role ring** → per-skill table (required level, your level,
-   evidence source) + contribution points and a line-by-line sum ending in the
-   exact `Displayed match`.
-2. **Recommended-deck cards** (Skills & Roles) → required-skill weights vs earned
-   credits (discovery credits labelled), verified matches, skill gap, and the
-   same exact-sum closing line.
-3. **JobsCard feed rows** → relevance (base/family/minor/verified/fresh bonuses),
-   experience fit, location fit, then every adjustment step (raw total, rounding,
-   clamp, seniority/relocation caps) summing exactly to the listed `match_pct`.
-4. **Exact-total invariant**: components + labelled adjustment lines always equal
-   the displayed number; if the decomposition ever can't reproduce it, the
-   backend raises 500 with a documented conflict rather than silently changing
-   the score. Self-reported evidence is never shown as verified; missing external
-   data stays `unknown`/unsupported instead of being invented.
-5. **HTTP**: `GET /api/students/{id}/target-role-match/breakdown`,
-   `GET /api/students/{id}/role-match/breakdown?role_id=|external_id=`,
-   `GET /api/students/{id}/jobs/recent/{fingerprint}/breakdown`.
-
-### Saved jobs & private application tracker (Phase K)
-
-The job feed also includes a no-key **Employer boards** provider for selected
-Egypt-based openings on Bosta and e.construct (Lever) and Careem (Greenhouse).
-It reads the employers' public career-board APIs, keeps only listings explicitly
-located in Egypt, and links to the original employer application page. This is
-not a Wuzzuf or LinkedIn integration. The browser checks SkillBridge's own job
-endpoint again after a cold-cache/background refresh and shows when providers
-were last checked; the backend's normal cache still limits upstream requests.
-When the feed has no verified match, the UI offers clearly labelled external
-searches on LinkedIn and Wuzzuf, without presenting their search results as
-SkillBridge listings. Provider availability and job openings can change, so
-the source site remains authoritative at application time.
-
-An optional **Bright Data Google Jobs** adapter is also available for Egypt.
-It needs both `BRIGHTDATA_API_KEY` and the exact `BRIGHTDATA_SERP_ZONE` in the
-local, git-ignored `.env`; a key without an active SERP zone does not enable it.
-It makes up to three Egypt-localized Google searches per cache build (nationwide,
-Cairo, and Alexandria), deduplicates the results, and accepts only explicit
-structured jobs with a real listing URL and Egypt location evidence. If one
-search fails, successful searches can still supply results. The Bright Data
-filter shows its own bounded results, even when they fall outside the combined
-feed's top 16. This is a sample for the user's target role, not an exhaustive
-listing of every Egyptian job. Other providers remain available as fallbacks.
-The key is never sent to the browser. Verify the zone's usage allowance in
-Bright Data before enabling it.
-
-Every "Recent roles for you" row now has a **Save** button that files the actual
-feed snapshot into your private **Applications tracker** — the pipeline snapshot
-is stored at save time and never re-derived, so the record stays honest even if
-the listing later expires or its link goes dead. Verified against the live
-server (desktop 1440 + mobile 390, consoles clean):
-
-1. **Save from the feed** → the row button switches to "Saved · tracked" and the
-   tracker below re-fetches immediately (no page reload).
-2. **Move it through your real workflow** with a stage selector: Saved, Preparing,
-   Applied, Screening, Interview, Offer, Hired, Rejected, Withdrawn, Archived /
-   expired. Each change is validated against an allow-list transition map (an
-   illegal move is rejected with a clear error) and recorded in an append-only
-   history on the card.
-3. **Private notes** stay with the row — note textarea, interview date, and
-   application deadline (all student-only). "Save details" only fires when there
-   is something new to write.
-4. **Archive / reactivate**: Archive is a stage transition, never a destroy; an
-   archived row can be brought back to Saved, Preparing, or Applied.
-5. **Delete** is only offered while a row is still purely **Saved**, and only
-   after a confirm dialog — an applied/offered row can never be quietly deleted.
-6. **Privacy**: the tracker is visible to the student owner only — companies and
-   universities never see it, nothing is emailed, synced, or sent anywhere, and
-   the lock note says exactly that.
-7. **HTTP**:
-   `GET/POST /api/students/{id}/jobs/tracker`, `GET/PATCH/DELETE …/jobs/tracker/{tid}`,
-   `POST /api/students/{id}/jobs/saved`.
-
-## Accounts, sign-in & verification
-
-- **Create an account** from the login page as a Student, Company, or University Admin.
-  Student and University Admin signup uses a cascading **country → university** dropdown fed
-  from a seeded reference list (a university not listed can be typed in via "Other").
-- **Google sign-in** uses real OAuth credentials when `SKILLBRIDGE_GOOGLE_CLIENT_ID` /
-  `SKILLBRIDGE_GOOGLE_CLIENT_SECRET` are set. Without them a clearly-labelled demo Google
-  provider stands in so the flow stays demoable.
-- **Email verification:** when SMTP is configured, local accounts start unverified and a
-  verification email is sent; clicking the emailed link (`/verify?token=…`) activates the
-  account. When SMTP is absent (demo) accounts start verified so the app stays demoable, but
-  the verification flow remains available.
-- **Password reset** requests email a reset link (or show the token in demo mode).
-
-## Configuration
-
-All configuration is via environment variables — no secrets are committed.
-
-**`.env` file (recommended).** Copy `.env.example` to `.env` at the repo root and fill in
-values. The backend now loads this file automatically on startup, so you don't need to export
-anything by hand. Real shell environment variables always win over the file.
-
-```
-cp .env.example .env   # POSIX
-```
-On Windows PowerShell:
-```powershell
-Copy-Item .env.example .env
-# then edit .env to add keys, OR set for the session:
-$env:ANTHROPIC_API_KEY="..."
-```
-
-**GenAI** — the four touchpoints call a real provider when a key is set, and fall back to a
-clear deterministic generator otherwise:
+## Build and verify
 
 ```bash
-export ANTHROPIC_API_KEY=...   # or OPENAI_API_KEY=...
-```
-PowerShell: `$env:ANTHROPIC_API_KEY="..."`
-
-**Google sign-in** (optional, else the demo provider is used):
-
-```bash
-export SKILLBRIDGE_GOOGLE_CLIENT_ID=...
-export SKILLBRIDGE_GOOGLE_CLIENT_SECRET=...
+npm run test:frontend   # TypeScript check
+npm run build           # frontend production build
+npm run test:backend    # complete backend pytest suite
 ```
 
-**Email / SMTP** (optional, else verification links are logged instead of sent):
+These checks need no production keys. The repository also includes focused
+frontend contract checkers and browser-regression scripts. A passing build is
+not a substitute for checking real user flows, responsive layouts, light/dark
+appearance, keyboard use, and Arabic/RTL in a browser.
 
-```bash
-export SMTP_HOST=smtp.example.com
-export SMTP_PORT=587
-export SMTP_USER=you@example.com
-export SMTP_PASS=your-app-password
-export SMTP_FROM=you@example.com          # optional, defaults to SMTP_USER
-export SKILLBRIDGE_APP_URL=http://localhost:8000   # base URL used in emailed links
-export SKILLBRIDGE_EMAIL_DISABLED=0       # set 1 to force demo/log mode even if SMTP is set
-```
+## Team
 
-Emails are delivered on a background task, so a slow or unreachable SMTP host never blocks or
-freezes the create-account / password-reset request.
+**Khaled Mohamed · Abdelrahman Mohamed · Eslam Osama**
 
-## Tests
-
-```bash
-# backend unit tests
-./scripts/test-backend.sh
-
-# end-to-end API verification against a fresh, seeded server
-./scripts/verify.sh
-```
-
-An automated browser walkthrough (Puppeteer) drives the running app as all three roles —
-defines a role (Company), uploads a CV and gets matched (Student), takes an assessment and
-sees the Verified badge appear, deliberately triggers an integrity flag, and views the
-aggregated University Dashboard — confirming no browser console errors.
-
-## What the app keeps track of
-
-- **Student** — name, email, university, target role, self-reported skill profile (extracted
-  from CV by GenAI), verified skill profile (built only from passed assessments).
-- **Company** — name, industry, and the roles it has defined.
-- **Role** — a job title with required skills and proficiency levels, owned by a Company.
-- **Skill** — name and category, shared reference list across CVs, roles, learning paths, and
-  assessments.
-- **Assessment Attempt** — student, skill, generated questions, answers, pass/fail score,
-  integrity flags (tab-switch, timing anomalies, suspected pasted-AI text), and the
-  before/after proficiency level.
-
-## Out of scope (v1)
-
-No webcam/biometric proctoring (integrity signals are simulated), no real job-post scraping,
-no cryptographic credential signing, no payments, no mobile app, no email/calendar
-integrations, and no multi-university or multi-language support.
-
-## Role Explorer (Phase L)
-
-The Skills & Roles **role library** is a self-contained explorer built on the existing page — no
-second catalogue:
-
-- **Recently Viewed** tab — every role whose details you open is recorded (up to 30, newest
-  first), so you can pick up your exploration where you left off. Rows show the role's title,
-  its provenance and role family, and how long ago you viewed it, with Save / Compare /
-  Set target / Details actions. The list is private to you and refreshes as you browse.
-- **Role family** facet — filter the library by the role's real family (roles without one are
-  honestly grouped under "Unclassified").
-- **Smarter search** — the search box debounces as you type and is fully keyboard-navigable:
-  `↑` / `↓` move a highlight ring across the results (announced to screen readers), `Enter`
-  opens the highlighted role, `Esc` clears the highlight.
-- **Clear provenance** — every card says where the role comes from (ESCO import / Canonical
-  catalogue / company) and shows its data version when one really exists. The library header
-  shows `Catalogue data v{version}` only when the backend reports a real reference version.
-- **Deep links** — your place in the explorer (tab, search query, family filter) lives in the
-  URL hash (`#explorer?t=recents&q=…&fam=…`), so reloads and back/forward restore exactly
-  where you were.
-
-## Role details, comparison & career transitions (Phase M)
-
-The role library's detail drawer and compare modal now surface only **sourced** information:
-
-- **Role details** — the drawer shows the role's real aliases (hidden aliases are never shown),
-  essential vs optional skills (grouped by the backend's own `skill_kind`), and for every
-  requirement an evidence badge drawn strictly from your profile: **verified**, **self-reported**,
-  or **none**. A legend sums exactly how many requirements are covered by verified evidence, by
-  self-reported evidence, are missing, or are still developing. Deprecated roles carry an honest
-  banner and are never offered among career-transition suggestions.
-- **Related roles & transitions** — a read-only list/table built from the role graph the backend
-  maintains (`parent` → *moves from*, *specialisations*, same-family *peers*, *supersedes*,
-  *replaced by*). Roles with no maintained relationships say so outright. No graph, no salary, no
-  probability, no timing is ever invented for transitions.
-- **Available jobs** — for each role the drawer consults your own live job feed (one fetch per
-  visit, the same profile-keyed feed the Dashboard uses) and lists the listings whose title
-  overlaps the role — each with its real provider and listing state (live/expired). When the feed
-  is still loading, when you have no CV yet, or when nothing overlaps, the section says so
-  honestly.
-- **Compare (up to 3 roles)** — besides skill match, difficulty and gaps, the comparison now adds
-  a **Shared skills** row, per-role **Unique to {role}** rows, a covered-evidence split
-  ("N verified · N self-reported"), and a **Live jobs** row counting the listings your current
-  feed holds for each role ("None in your feed" when zero, "—" while the feed hasn't loaded).
-  Scores are never recomputed here — the same exact match numbers from the cards are reused.
+SkillBridge is a collaborative educational project. The source is the current
+implementation; dated plans and earlier agent handoffs are retained under
+[`docs/archive/`](docs/archive/README.md) for traceability, not as a list of
+features promised or completed today.
