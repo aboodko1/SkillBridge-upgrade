@@ -34,8 +34,6 @@ improves the student's evidence and makes the next action clear.
 > This repository is an educational prototype demonstrating the full loop end to end. It is not
 > presented as a production hiring or credentialing platform.
 
-> **Team handoff:** start with [`TEAM_HANDOFF_CURRENT_STATUS.md`](TEAM_HANDOFF_CURRENT_STATUS.md).
-> It records the verified build, the exact known UI/accessibility debt, and the next safe work.
 
 ## What makes SkillBridge different
 
@@ -109,8 +107,7 @@ frontend/
 scripts/
   setup.sh          one-time env setup (idempotent)
   test-backend.sh   run all backend unit tests
-  verify.sh         run an end-to-end API verification against a fresh server
-  start.sh          single-command startup
+  start.mjs         single-command startup
 ```
 
 ## Run (simplest — one command, works everywhere)
@@ -185,7 +182,7 @@ the same `npm start` — you never need them.
 7. **University** — log in as `admin@univ.edu` → **University Dashboard**: only
    anonymized, aggregated skill-gap stats across the cohort — no individual data.
 
-### Practice Scenarios & the connected journey (Phases 4–6)
+### Practice scenarios and the connected journey
 
 Demonstrated against the live server (desktop 1440, tablet 820, mobile 390; consoles clean):
 
@@ -211,7 +208,7 @@ Demonstrated against the live server (desktop 1440, tablet 820, mobile 390; cons
    and never awards a Verified tag; "Take the Assessment" never implies readiness
    guarantees; nothing auto-changes the target role.
 
-### Explainable matching (Phase J)
+### Explainable matching
 
 Every displayed role/job match now opens a **"How is this score built?"**
 disclosure that decomposes the number into the exact labelled parts the backend
@@ -237,7 +234,7 @@ mobile 390, consoles clean):
    `GET /api/students/{id}/role-match/breakdown?role_id=|external_id=`,
    `GET /api/students/{id}/jobs/recent/{fingerprint}/breakdown`.
 
-### Saved jobs & private application tracker (Phase K)
+### Saved jobs and private application tracker
 
 Every "Recent roles for you" row now has a **Save** button that files the actual
 feed snapshot into your private **Applications tracker** — the pipeline snapshot
@@ -331,11 +328,8 @@ freezes the create-account / password-reset request.
 ## Tests
 
 ```bash
-# backend unit tests
-./scripts/test-backend.sh
-
-# end-to-end API verification against a fresh, seeded server
-./scripts/verify.sh
+npm run test:backend
+npm run test:frontend
 ```
 
 An automated browser walkthrough (Puppeteer) drives the running app as all three roles —
@@ -361,7 +355,7 @@ No webcam/biometric proctoring (integrity signals are simulated), no real job-po
 no cryptographic credential signing, no payments, no mobile app, no email/calendar
 integrations, and no multi-university or multi-language support.
 
-## Role Explorer (Phase L)
+## Role explorer
 
 The Skills & Roles **role library** is a self-contained explorer built on the existing page — no
 second catalogue:
@@ -382,7 +376,7 @@ second catalogue:
   URL hash (`#explorer?t=recents&q=…&fam=…`), so reloads and back/forward restore exactly
   where you were.
 
-## Role details, comparison & career transitions (Phase M)
+## Role details, comparison and career transitions
 
 The role library's detail drawer and compare modal now surface only **sourced** information:
 
