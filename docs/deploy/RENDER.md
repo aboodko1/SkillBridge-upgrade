@@ -10,7 +10,7 @@ links, so there is **no separate frontend service** and no split.
 1. Sign in at https://dashboard.render.com (GitHub login).
 2. **New → Web Service**.
 3. Connect the repo `aboodko1/SkillBridge-upgrade` and select the branch you
-   deploy (e.g. `main` after the Phase 7 merge).
+   deploy (normally `main`).
 4. Leave the defaults and paste:
    - **Build command:** `bash scripts/render-build.sh`
    - **Start command:** `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
