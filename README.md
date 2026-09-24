@@ -163,7 +163,7 @@ credentials**; never use them for a public deployment.
 5. **Other views:** sign in as Employer to see role requirements and candidate
    matching, then University admin for anonymized cohort trends.
 
-For a more detailed team handoff, see [`docs/team/`](docs/team/README.md).
+For technical detail and demo resources, see the [documentation index](docs/README.md).
 
 ## Trust and current limits
 
@@ -202,6 +202,6 @@ appearance, keyboard use, and Arabic/RTL in a browser.
 **Khaled Mohamed · Abdelrahman Mohamed · Eslam Osama**
 
 SkillBridge is a collaborative educational project. The source is the current
-implementation; dated plans and earlier agent handoffs are retained under
-[`docs/archive/`](docs/archive/README.md) for traceability, not as a list of
-features promised or completed today.
+implementation; the diagrams, setup notes, and screenshots in
+[`docs/`](docs/README.md) explain the current prototype. Earlier internal plans
+remain in Git history rather than being presented as shipped features.
