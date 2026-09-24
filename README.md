@@ -203,5 +203,4 @@ appearance, keyboard use, and Arabic/RTL in a browser.
 
 SkillBridge is a collaborative educational project. The source is the current
 implementation; the diagrams, setup notes, and screenshots in
-[`docs/`](docs/README.md) explain the current prototype. Earlier internal plans
-remain in Git history rather than being presented as shipped features.
+[`docs/`](docs/README.md) explain the current prototype.
