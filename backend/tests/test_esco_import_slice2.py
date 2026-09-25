@@ -77,7 +77,7 @@ def test_migration_0004_on_fresh_db(tmp_path):
     try:
         database.init_db()
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == "0016_mentor_ui_preferences"
+        assert "0016_mentor_ui_preferences" in applied
         role_cols = {r["name"] for r in conn.execute("PRAGMA table_info(roles)")}
         assert {"source_language", "import_imprint"} <= role_cols
         tables = {r["name"] for r in conn.execute(

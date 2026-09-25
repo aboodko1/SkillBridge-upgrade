@@ -13,7 +13,7 @@ All GenAI calls forced to deterministic fallback except where explicitly mocked.
 import json
 
 import pytest
-from app import genai, lessons
+from app import genai, knowledge_base, lessons
 
 
 @pytest.fixture(autouse=True)
@@ -184,6 +184,9 @@ def test_misleading_source_flag_is_preserved():
 
 
 def test_ai_path_carries_grounded_sources_and_self_check(monkeypatch):
+    # Docker now has a canonical lesson, which intentionally bypasses GenAI.
+    # Disable that lookup only here so this still tests the AI grounding path.
+    monkeypatch.setattr(knowledge_base, "complete_lesson", lambda *_: None)
     trusted_source = {"title": "Docker Docs", "url": "https://docs.docker.com/net/",
                       "source": "Docker"}
     monkeypatch.setattr(

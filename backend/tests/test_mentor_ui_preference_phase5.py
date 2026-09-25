@@ -31,7 +31,7 @@ def test_migration_0016_creates_mentor_ui_preferences(tmp_path):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(mentor_ui_preferences)").fetchall()}
         assert {"student_id", "panel_visible", "updated_at"} <= cols
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == "0016_mentor_ui_preferences"
+        assert "0016_mentor_ui_preferences" in applied
         assert database.run_migrations() == []
     finally:
         database.set_db_for_test()

@@ -8,7 +8,7 @@ All GenAI calls are forced to the deterministic fallback so tests never consume
 """
 import pytest
 
-from app import diagnostics, genai, models
+from app import diagnostics, genai, knowledge_base, models
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +48,7 @@ def test_generate_diagnostic_every_question_has_competency(client, docker_skill,
     assert r.status_code == 200, r.text
     body = r.json()
     qs = body["questions"]
-    assert 5 <= len(qs) <= 9
+    assert len(qs) == 15  # reviewed Docker bank covers every competency
     assert body["diagnostic_id"]
     assert body["topics"]
     for q in qs:
@@ -71,7 +71,7 @@ def test_deterministic_fallback_valid(db, docker_skill):
     """Without an API key, generation still yields a structured, tagged, usable diagnostic."""
     comps = diagnostics.resolve_topics(docker_skill["name"])
     qs = genai.generate_diagnostic(docker_skill["name"], comps, "AI Engineer")
-    assert 5 <= len(qs) <= 9
+    assert len(qs) == 15
     for q in qs:
         assert q["id"] and q["question"] and q["competency"]
         if q["type"] == "mcq":
@@ -99,6 +99,7 @@ def test_generate_diagnostic_llm_path_no_crash(monkeypatch, client, docker_skill
          "difficulty": "beginner"} for i in range(7)])
     monkeypatch.setattr(genai, "genai_enabled", lambda: True)
     monkeypatch.setattr(genai, "complete", lambda *a, **k: payload)
+    monkeypatch.setattr(knowledge_base, "curated_diagnostic_questions", lambda *_: [])
     headers = auth_headers("aisha@student.edu")
     r = _generate(client, aisha_id, docker_skill["id"], headers)
     assert r.status_code == 200, r.text

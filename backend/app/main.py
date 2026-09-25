@@ -3165,7 +3165,7 @@ def api_submit_practice(student_id: int, skill_id: int, competency: str,
     context["strict"] = curated
     try:
         result = practice.evaluate_practice(context, answer)
-    except practice.PracticeProviderError:
+    except practice.PracticeGraderUnavailable:
         raise HTTPException(
             status_code=503,
             detail=("Practice review is temporarily unavailable. "
@@ -3373,6 +3373,8 @@ def api_submit_mini_check(student_id: int, skill_id: int, competency: str,
     lesson = models.get_lesson(student_id, path["id"], competency)
     if not lesson:
         raise HTTPException(status_code=404, detail="No lesson found. Generate it first.")
+    if lesson.get("state") == "completed":
+        raise HTTPException(status_code=409, detail="Lesson is already completed. Mini Check results cannot be changed.")
     content = lesson.get("content") or {}
     mc_questions = (content.get("mini_check") or {}).get("questions") or []
     answers = body.get("answers") or []

@@ -118,7 +118,15 @@ export function LearningProgress({ done, total, label = 'Personalized topic prog
         <strong>{pct}%</strong>
       </div>
       <div className="lp-track"><span style={{ width: `${pct}%` }} /></div>
-      <div className="lp-meta">{done}/{total || 0} topics completed</div>
+      <div className="lp-meta">
+        {done}/{total || 0} topics completed{' '}
+        <WhyThis>
+          Numerator: personalized-path topics you completed (Mini Check passed). Denominator: topics across
+          your known personalized paths. Source: personalized-path progress for each open requirement.
+          Rounding: nearest whole percent. Study progress only — it never grants a Verified Skill and never
+          changes your profile level.
+        </WhyThis>
+      </div>
     </div>
   )
 }
@@ -286,10 +294,12 @@ export function WhyThis({ label = 'Why this?', children }: {
   )
 }
 
-export function CurrentLessonCard({ skillName, topicTitle, estimatedMinutes, purpose, onContinue }: {
+export function CurrentLessonCard({ skillName, topicTitle, estimatedMinutes, completedTopics = 0, totalTopics = 0, purpose, onContinue }: {
   skillName: string
   topicTitle: string
   estimatedMinutes?: number
+  completedTopics?: number
+  totalTopics?: number
   purpose: string
   onContinue: () => void
 }) {
@@ -301,6 +311,7 @@ export function CurrentLessonCard({ skillName, topicTitle, estimatedMinutes, pur
         <h3>{topicTitle}</h3>
         <p className="muted small">
           {purpose}
+          {totalTopics > 0 ? <> · {completedTopics}/{totalTopics} topics complete</> : null}
           {estimatedMinutes ? <> · <span className="pp-est"><IconClock size={13} /> ~{estimatedMinutes} min</span></> : null}
         </p>
       </div>

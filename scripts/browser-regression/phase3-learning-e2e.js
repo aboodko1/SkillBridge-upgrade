@@ -231,7 +231,7 @@ async function reLoginPersistence(browser, base) {
   const skillId = skills.find((s) => (s.name || '').toLowerCase() === 'python').id
   const p = await fetch(`${base}/api/students/${sid}/learning/${skillId}/personalized-path`, { headers: H }).then((r) => r.json())
   const states = {}
-  for (const slug of ['python_functions', 'python_error_handling', 'python_data_structures']) {
+  for (const slug of ['python_functions', 'python_error_handling']) {
     const l = await fetch(`${base}/api/students/${sid}/learning/${skillId}/lessons/${encodeURIComponent(slug)}`, { headers: H }).then((r) => r.json())
     states[slug] = l.state
   }
@@ -243,10 +243,20 @@ async function renderLearningUI(page, base) {
   await page.goto(base + '/', { waitUntil: 'domcontentloaded' })
   await sleep(600)
   await page.evaluate(() => {
+    const skip = [...document.querySelectorAll('button')].find((b) => /skip tour|don't show again/i.test((b.textContent || '').trim()))
+    if (skip) skip.click()
+  })
+  await sleep(400)
+  await page.evaluate(() => {
     const b = [...document.querySelectorAll('.nav-item')].find((x) => (x.textContent || '').trim().indexOf('Learning') === 0)
     if (b) b.click()
   })
-  await sleep(2500)
+  await sleep(2000)
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('.focus-flow button')].find((x) => /my paths/i.test(x.textContent || ''))
+    if (b) b.click()
+  })
+  await sleep(1500)
   return page.evaluate(() => ({
     hasPython: /python/i.test(document.body.innerText),
     text: document.body.innerText.replace(/\s+/g, ' ').slice(0, 4000),
@@ -276,14 +286,11 @@ async function renderLearningUI(page, base) {
 
     ok(journey.pathItems.includes('python_functions'), 'personalized path includes Python Functions')
     ok(journey.pathItems.includes('python_error_handling'), 'personalized path includes Python Error Handling')
-    ok(journey.pathItems.includes('python_data_structures'), 'personalized path includes Python Data Structures')
     ok(journey.pathItems.indexOf('python_functions') < journey.pathItems.indexOf('python_error_handling'),
       'Python Functions is ordered before Python Error Handling (prerequisite-aware)')
-    ok(journey.pathItems.indexOf('python_error_handling') < journey.pathItems.indexOf('python_data_structures'),
-      'Python Error Handling is ordered before Python Data Structures (curriculum order)')
 
     const bySlug = Object.fromEntries(journey.steps.map((s) => [s.slug, s]))
-    for (const slug of ['python_functions', 'python_error_handling', 'python_data_structures']) {
+    for (const slug of ['python_functions', 'python_error_handling']) {
       const s = bySlug[slug]
       ok(!!s, `${slug}: journey step ran`)
       if (!s) continue
@@ -296,17 +303,16 @@ async function renderLearningUI(page, base) {
       ok(s.persistedState === 'completed', `${slug}: completion persists on re-read (got ${s.persistedState})`)
       ok(s.duplicateReused === true, `${slug}: exact duplicate submission reuses the stored attempt`)
     }
-    ok(journey.progress.length >= 3, `personalized path progress has every topic (${journey.progress.join(', ')})`)
+    ok(journey.progress.length >= 2, `personalized path progress has every curated topic (${journey.progress.join(', ')})`)
     ok(JSON.stringify(journey.verifiedBefore) === JSON.stringify(journey.verifiedAfter),
       'learning + Mini Check did NOT create a Verified Skill')
 
     console.log('\n-- persistence after a fresh browser context + re-login --')
     const persisted = await reLoginPersistence(browser, base)
     await sleep(200)
-    ok(persisted.progress.length >= 3, `persisted path progress after re-login (${persisted.progress.join(', ')})`)
+    ok(persisted.progress.length >= 2, `persisted path progress after re-login (${persisted.progress.join(', ')})`)
     ok(persisted.states.python_functions === 'completed', `Python Functions still completed after re-login (got ${persisted.states.python_functions})`)
     ok(persisted.states.python_error_handling === 'completed', `Python Error Handling still completed after re-login (got ${persisted.states.python_error_handling})`)
-    ok(persisted.states.python_data_structures === 'completed', `Python Data Structures still completed after re-login (got ${persisted.states.python_data_structures})`)
 
     console.log('\n-- Learning UI renders the persisted journey --')
     const ui = await renderLearningUI(first.page, base)

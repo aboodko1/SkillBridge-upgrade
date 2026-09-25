@@ -39,8 +39,6 @@
 .focus-show-more:hover { border-color: var(--sb-indigo); }
 .focus-secondary-link { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0 0; padding: 10px 2px; border: 0; background: transparent; color: var(--sb-indigo); font: inherit; font-size: 13px; font-weight: 750; cursor: pointer; }
 .focus-secondary-link:hover { text-decoration: underline; }
-.focus-hero-action { margin-top: 18px; }
-.learning-page:has(.focus-hero-action) .journey-card-actions { display: none; }
 .focus-secondary-link:focus-visible, .focus-back:focus-visible, .focus-lesson-meta button:focus-visible { outline: 3px solid var(--sb-indigo); outline-offset: 3px; border-radius: 4px; }
 .focus-lesson-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .focus-lesson-steps .lesson-tab { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 44px; text-align: center; }
@@ -54,8 +52,45 @@
 .focus-diagnostic-progress .progress-track { width: 100%; }
 .focus-diagnostic-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; }
 .focus-diagnostic-actions .btn { min-height: 44px; }
-
-/* Login: expressive, restrained editorial hero; authentication logic is unchanged. */
+.learning-page-state, .path-load-state, .journey-path-loading { display: flex; align-items: center; gap: 14px; min-height: 112px; padding: 22px; border: 1px solid var(--sb-border); border-radius: 16px; background: var(--sb-panel); color: var(--sb-midnight-ink); }
+.learning-page-state > div, .path-load-state > div, .journey-path-loading > div { min-width: 0; }
+.learning-page-state strong, .path-load-state strong, .journey-path-loading strong { display: block; font-size: 15px; }
+.learning-page-state p, .path-load-state p, .journey-path-loading p { margin: 5px 0 0; color: var(--slate-500); line-height: 1.5; }
+.learning-page-error { border-color: color-mix(in srgb, var(--red) 42%, var(--sb-border)); }
+.learning-page-error > div { flex: 1; }
+.learning-state-spinner, .practice-spinner { width: 20px; height: 20px; flex: 0 0 20px; border: 2px solid color-mix(in srgb, var(--sb-indigo) 20%, transparent); border-top-color: var(--sb-indigo); border-radius: 50%; animation: learning-spin .8s linear infinite; }
+.learning-snapshot { border: 1px solid var(--sb-border); border-radius: 16px; background: var(--sb-panel); overflow: hidden; }
+.learning-snapshot > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; color: var(--sb-midnight-ink); font-weight: 750; }
+.learning-snapshot > summary::-webkit-details-marker { display: none; }
+.learning-snapshot > summary::after { content: '⌄'; color: var(--sb-indigo); font-size: 18px; }
+.learning-snapshot[open] > summary::after { transform: rotate(180deg); }
+.learning-snapshot > summary span { margin-left: auto; color: var(--slate-500); font-size: 12px; font-weight: 600; }
+.learning-snapshot > .lp-stat-grid { padding: 0 18px 18px; }
+.journey-path-loading { min-height: 108px; margin: 0; }
+.path-load-state { min-height: 96px; margin-bottom: 16px; }
+.path-item.is-error { border-color: color-mix(in srgb, var(--red) 35%, var(--sb-border)); }
+.path-row-action { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.path-row-error { max-width: 190px; color: var(--red); font-size: 11px; line-height: 1.4; text-align: right; }
+.lesson-load-error { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px; }
+.lesson-load-error > div:first-child { flex: 1; }
+.lesson-load-error strong { display: block; color: var(--sb-midnight-ink); }
+.lesson-load-error p { margin: 5px 0 0; color: var(--slate-600); }
+.lesson-load-error-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.practice-history-error, .mini-check-error, .path-panel-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; margin: 12px 0; }
+.practice-history-error > span, .mini-check-error { color: var(--slate-700); }
+.focus-lesson-navigation { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--sb-border); border-radius: 12px; background: var(--slate-50); }
+.focus-lesson-navigation .btn { min-height: 42px; }
+.lesson-optional-details, .lesson-resource-details { margin-top: 16px; border: 1px solid var(--sb-border); border-radius: 12px; background: var(--slate-50); overflow: hidden; }
+.lesson-optional-details > summary, .lesson-resource-details > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 15px; color: var(--sb-midnight-ink); font-weight: 750; }
+.lesson-optional-details > summary::-webkit-details-marker, .lesson-resource-details > summary::-webkit-details-marker { display: none; }
+.lesson-optional-details > summary::after, .lesson-resource-details > summary::after { content: '⌄'; color: var(--sb-indigo); font-size: 17px; }
+.lesson-optional-details[open] > summary::after, .lesson-resource-details[open] > summary::after { transform: rotate(180deg); }
+.lesson-optional-details > summary span, .lesson-resource-details > summary span { margin-left: auto; color: var(--slate-500); font-size: 12px; font-weight: 600; }
+.lesson-optional-content { padding: 0 15px 15px; }
+.lesson-resource-details .lesson-resource-panel { border: 0; box-shadow: none; background: transparent; }
+.lesson-completed-result { margin-top: 8px; }
+@keyframes learning-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .learning-state-spinner, .practice-spinner { animation: none; } }
 .login-split { isolation: isolate; }
 .login-hero-panel { background: #0b1421; padding: clamp(26px, 3.2vw, 54px); }
 .login-hero-panel::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 83% 25%, rgba(90,118,214,.18), transparent 32%), radial-gradient(circle at 12% 78%, rgba(255,127,63,.13), transparent 34%), linear-gradient(125deg, #101b2d 0%, #0b1421 72%); pointer-events: none; }
@@ -94,3 +129,4 @@
 @media (max-width: 900px) { .login-hero-panel { min-height: auto; gap: 28px; } .login-hero-panel .hero-copy { margin-top: 8px; } .login-story { margin-top: 0; } .login-hero-footer { margin-top: 0; } }
 @media (max-width: 640px) { .focus-flow { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); } .learning-page .focus-flow { grid-template-columns: repeat(3, minmax(0,1fr)); } .focus-flow button { padding: 10px; gap: 4px; flex-direction: column; font-size: 11px; } .focus-next-action { align-items: flex-start; flex-direction: column; } .focus-more-learning > .right-col { grid-template-columns: 1fr; } .mini-tour-compact summary span { display: none; } .login-hero-panel .hero-headline { font-size: 36px; } .login-story-steps button { font-size: 10px; padding: 9px; } .login-story-icon { display: none; } .login-story { padding: 18px; } .login-story h2 { margin-top: 16px; } .focus-lesson-steps { grid-template-columns: repeat(2, minmax(0,1fr)); } .focus-lesson-meta { align-items: flex-start; flex-direction: column; } }
 @media (prefers-reduced-motion: reduce) { .login-story-steps button, .focus-flow button { transition: none; } }
+@media (max-width: 640px) { .learning-page-state, .path-load-state, .journey-path-loading, .lesson-load-error, .path-panel-error { align-items: flex-start; flex-direction: column; } .lesson-load-error-actions { width: 100%; } .lesson-load-error-actions .btn { flex: 1; } .focus-lesson-navigation { align-items: stretch; flex-direction: column; } .focus-lesson-navigation .btn { width: 100%; } .learning-snapshot > summary, .lesson-optional-details > summary, .lesson-resource-details > summary { align-items: flex-start; flex-wrap: wrap; } .learning-snapshot > summary span, .lesson-optional-details > summary span, .lesson-resource-details > summary span { width: 100%; margin-left: 0; } .path-row-action { align-items: flex-start; } .path-row-error { max-width: none; text-align: left; } }

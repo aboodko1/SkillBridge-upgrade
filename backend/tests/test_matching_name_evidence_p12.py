@@ -106,8 +106,9 @@ def test_khaled_profile_moves_off_zero(db):
 
 def test_khaled_profile_exact_ring_value(db):
     student = _student(KHALED_SKILLS)
+    reqs_without_id_collision = [(sid + 9000, name) for sid, name in REQUIREMENTS_27]
     # 6 adjacent gaps at Advanced (3) vs Intermediate (2): 0.5 credit each.
-    assert matching.job_match_score(student, _dict_role(REQUIREMENTS_27)) == 15.0
+    assert matching.job_match_score(student, _dict_role(reqs_without_id_collision)) == 15.0
 
 
 def test_generic_frame_tokens_never_match(db):

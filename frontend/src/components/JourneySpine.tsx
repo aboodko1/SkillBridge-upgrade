@@ -16,7 +16,7 @@ export interface JourneySpineProps {
   trackerCount: number
   interviewCount: number
   nextLabel: string
-  // null action = career-ready (D3 hand-off)
+  // null action = no open gap action (D3 hand-off)
   nextAction: 'skills' | 'learning' | 'scenarios' | 'assessments' | null
   onGo: (section: string, focus?: { skillId: number; roleTitle: string }) => void
   onFocus: (target: 'find' | 'track') => void
@@ -25,7 +25,7 @@ export interface JourneySpineProps {
 const STAGE_COPY: Record<'build' | 'close' | 'ready' | 'apply', { label: string; sub: string }> = {
   build: { label: '1 · Build evidence', sub: 'Choose a target role, then build real skill evidence through learning and assessments.' },
   close: { label: '2 · Close the gaps', sub: 'Your target role is set — the journey below points at the gaps that matter next.' },
-  ready: { label: '3 · Ready for opportunities', sub: 'All required skills are covered and verified. The journey hands off to the live job board.' },
+  ready: { label: '3 · Requirements covered', sub: 'No requirement gap is open right now. Coverage can include self-reported evidence, so verify it before relying on it for applications.' },
   apply: { label: '4 · Find, apply & track', sub: 'You have reached the interview stage on a tracked application — keep the feed moving.' },
 }
 
@@ -159,7 +159,7 @@ export default function JourneySpine(props: JourneySpineProps) {
         ))}
       </div>
       <p className="jny-foot small muted">
-        {stage === 'ready' ? `Career ready for ${roleTitle || 'your target role'}. The board below is your real, current feed — nothing here is invented.`
+        {stage === 'ready' ? `No open requirement gap for ${roleTitle || 'your target role'} right now — this is requirement coverage over your current evidence, not a hiring or verification guarantee. The board below is your real, current feed.`
           : stage === 'close' ? 'The single score above is the match ring; these steps are only derived labels over data you already have.'
             : stage === 'apply' ? `You reached an interview stage on one of your tracked applications (${interviewCount}). The tracker is private to you.`
               : 'Choose a target career to unlock this journey.'}

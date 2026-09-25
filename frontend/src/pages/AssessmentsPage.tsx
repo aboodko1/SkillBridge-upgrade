@@ -21,9 +21,12 @@ import {
   type WebcamDetector,
 } from '../lib/webcamIntegrity'
 import { GapPill } from '../components/widgets'
+import { WhyThis } from '../components/learning'
 import { MiniTourBanner } from '../components/ProductTour'
-import { IconAssessment, IconAlert, IconFlag, IconCheck, IconTrophy, IconClock, IconEye, IconShield, IconUsers, IconBack, IconTarget } from '../components/Icons'
+import { IconAssessment, IconAlert, IconFlag, IconCheck, IconTrophy, IconClock, IconEye, IconShield, IconUsers, IconBack, IconTarget, IconRefresh } from '../components/Icons'
 import { ToastRegion, useToast } from '../components/ui'
+
+const FINAL_ASSESSMENT_QUESTION_COUNT = 10
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
@@ -323,7 +326,7 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
           <h1>Turn claimed skills into verified evidence.</h1>
           <p>Choose one skill, complete its assessment, and add trusted evidence to your profile.</p>
           {heroPrimary && (
-            <button type="button" className="btn btn-primary asm-hero-cta" onClick={() => scrollToSkill(heroPrimary.skillId)}>
+            <button type="button" className="btn asm-hero-cta" onClick={() => scrollToSkill(heroPrimary.skillId)}>
               <IconAssessment size={15} /> {heroPrimary.label}
             </button>
           )}
@@ -343,9 +346,9 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
           </div>
         </div>
         <div className="preflight" role="note">
-          <span className="preflight-item"><IconCheck size={14} /> 10 questions per skill</span>
+          <span className="preflight-item"><IconCheck size={14} /> {FINAL_ASSESSMENT_QUESTION_COUNT} questions per skill</span>
           <span className="preflight-item"><IconCheck size={14} /> Score 70% or more passes</span>
-          <span className="preflight-item"><IconShield size={14} /> Camera proctoring throughout</span>
+          <span className="preflight-item"><IconShield size={14} /> Camera integrity checks throughout</span>
         </div>
       </section>
 
@@ -361,7 +364,7 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
                 <span className="panel-title-icon"><IconAssessment size={15} /></span>
                 <h3 className="panel-title">Verify a skill</h3>
               </div>
-              <p className="panel-subtitle">Take a proctored 10-question assessment to move a skill from self-reported to Verified.</p>
+              <p className="panel-subtitle">Take a {FINAL_ASSESSMENT_QUESTION_COUNT}-question Final Assessment with local camera integrity checks to move a skill from self-reported to Verified.</p>
             </div>
           </div>
           {loadError && (
@@ -414,7 +417,7 @@ export default function AssessmentsPage({ initialSkillId, onFocusConsumed, backT
                 <span className="panel-title-icon"><IconTrophy size={15} /></span>
                 <h3 className="panel-title">Assessment history</h3>
               </div>
-              <p className="panel-subtitle">Every attempt, its score, and any integrity flags that were raised.</p>
+              <p className="panel-subtitle">Every attempt, its score, and any integrity flags that were raised. Score = correct answers ÷ total questions × 100 (rounded to 1 decimal by the backend); it is fixed at submission and is never recalculated. Integrity flags are metadata-only review notes, not proof of cheating.</p>
             </div>
           </div>
           {attempts.length === 0 ? (
@@ -481,6 +484,7 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
   const [practiceData, setPracticeData] = useState<any>(null)
   const [busy, setBusy] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [startError, setStartError] = useState('')
   const [current, setCurrent] = useState(0)
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -751,6 +755,7 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
     setOptOrder(null)
     setCameraError('')
     setCameraWarning('')
+    setStartError('')
     resetCameraEvents()
   }, [resetCameraEvents])
 
@@ -874,7 +879,14 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
         })
         sessionStorage.removeItem(gatePendingKey(gap.skill_id))
       }
-      const res = await api.generateAssessment(me!.student!.id, gap.skill_id, { practice: false })
+      const res = await withTimeout(
+        api.generateAssessment(me!.student!.id, gap.skill_id, { practice: false, num_questions: FINAL_ASSESSMENT_QUESTION_COUNT }),
+        180000,
+        'Generating the assessment took too long. Check your connection and retry.',
+      )
+      if (!res.questions || res.questions.length === 0) {
+        throw new Error('the assessment returned no questions for this skill.')
+      }
       const idx = res.questions.map((_, i) => i)
       for (let i = idx.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1))
@@ -891,7 +903,9 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
     } catch (e: any) {
       releaseLock()
       stopCamera()
-      onError?.('Failed to generate quiz: ' + e.message)
+      const message = e?.message || String(e)
+      setStartError('Could not start the assessment: ' + message)
+      onError?.('Failed to generate quiz: ' + message)
       setMode('idle')
       onDeactivate()
     } finally {
@@ -1052,7 +1066,7 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
 
   if (mode === 'camera_notice') {
     const passRule = 70
-    const questionCount = 10
+    const questionCount = FINAL_ASSESSMENT_QUESTION_COUNT
     const approxMinutes = Math.max(5, Math.round(questionCount * 1))
     return (
       <div className="learning-item open asm-landing">
@@ -1061,7 +1075,7 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
           <h3 style={{ marginBottom: 4 }}>{gap.skill_name}</h3>
           <div className="asm-facts" role="note">
             <span className="asm-fact"><IconCheck size={14} /> {questionCount} questions</span>
-            <span className="asm-fact"><IconClock size={14} /> About {approxMinutes} minutes</span>
+            <span className="asm-fact"><IconClock size={14} /> No time limit · About {approxMinutes} minutes</span>
             <span className="asm-fact"><IconTarget size={14} /> Pass at {passRule}% or more</span>
           </div>
           <div className="asm-what-changes">
@@ -1077,15 +1091,23 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
             <div>
               <h4>Camera integrity notice</h4>
               <p className="small muted">
-                This assessment uses your camera to support assessment integrity.
+                This Final Assessment uses your camera to support assessment integrity.
               </p>
             </div>
           </div>
           <p className="camera-copy">
-            During the assessment SkillBridge checks whether the camera remains active and may flag events such as no person being visible, multiple people appearing, or a phone being detected.
+            During the assessment SkillBridge checks whether the camera stays active and may raise review
+            signals such as no person being visible, more than one person appearing, or a phone being
+            detected. These checks run locally on your device.
           </p>
           <p className="camera-copy">
-            Video is not recorded or stored. Camera analysis is used only during the assessment.
+            Video is never recorded, stored or uploaded, and SkillBridge never identifies who you are —
+            there is no face recognition or identity matching. Integrity signals are metadata-only review
+            notes, not proof of cheating, and a flag by itself never changes your level.
+          </p>
+          <p className="camera-copy">
+            When you continue, your browser will ask for camera permission. Allow it so the pre-check can
+            confirm the camera works and that exactly one person is visible before the questions begin.
           </p>
           <div className="camera-actions">
             <button className="btn" onClick={cancelCameraFlow}>Cancel</button>
@@ -1156,7 +1178,7 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
               )}
               {gateBlocked ? (
                 <div className="error" style={{ whiteSpace: 'normal' }}>
-                  <IconAlert size={15} /> The camera gate could not be completed after several attempts. The Final Assessment requires a working camera. Close any other app using it, check browser permissions, restart your browser, then start again.
+                  <IconAlert size={15} /> The camera gate could not be completed after several attempts. The Final Assessment requires a working camera, and there is no camera-free way to verify a skill — Practice review stays separate and never affects verification. Close any other app using the camera, check browser permissions, restart your browser, then start again.
                 </div>
               ) : cameraError ? (
                 <div className="error" style={{ whiteSpace: 'normal' }}>
@@ -1215,6 +1237,24 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
           <div className="flex" style={{ justifyContent: 'flex-end' }}>
             <button className="btn" onClick={() => { setMode('idle'); onDeactivate() }}>Back</button>
             <button className="btn btn-primary" onClick={() => start(false)}><IconAssessment size={14} /> Redo for real</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (mode === 'quiz' && !questions.length) {
+    return (
+      <div className="learning-item open" style={{ border: '1.5px solid var(--sb-red)' }}>
+        <div className="li-body" style={{ display: 'block', padding: 18 }}>
+          <h4 style={{ marginBottom: 6 }}>Could not load questions for {gap.skill_name}</h4>
+          <p className="small muted mb">
+            The assessment did not return any questions, so nothing was scored or saved. Retry to
+            generate a new attempt.
+          </p>
+          <div className="flex" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={() => { setMode('idle'); onDeactivate() }}>Back to skill list</button>
+            <button className="btn btn-primary" onClick={() => void start(false)}><IconRefresh size={14} /> Retry</button>
           </div>
         </div>
       </div>
@@ -1417,6 +1457,18 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
           <details className="result-details">
             <summary><IconEye size={14} /> View details</summary>
             <div className="result-details-body">
+          <div className="info" style={{ whiteSpace: 'normal' }}>
+            <IconShield size={15} />
+            <span>
+              Score = questions answered correctly ÷ total questions × 100, rounded to 1 decimal by the
+              backend (shown here as a whole percent). It is fixed at submission and is not recalculated
+              later, so there is no separate recalculation time. Numerator: correct answers. Denominator:
+              every question in this attempt, including any left unanswered (scored as 0). Integrity is
+              reported separately from the score: camera and browser signals are metadata-only review notes,
+              not proof of cheating or an identity check. Only a passed attempt (overall 70% and, for a
+              full-coverage assessment, every required competency) marks the skill Verified on your profile.
+            </span>
+          </div>
           {Array.isArray(result.competencies) && result.competencies.length > 0 && (
             <div style={{ marginTop: 14 }}>
               <h5 className="small" style={{ textTransform: 'uppercase', letterSpacing: 0.06, marginBottom: 6 }}>
@@ -1497,10 +1549,22 @@ function AssessmentStarter({ gap, lastAttempt, onDone, onActivate, onDeactivate,
           {lastAttempt && (
             <>
               <span aria-hidden="true">·</span>
-              <span>Last score <strong>{lastAttempt.score}%</strong></span>
+              <span>Last score <strong>{lastAttempt.score}%</strong>{' '}
+                <WhyThis>
+                  Your most recent attempt on this skill. Numerator: questions answered correctly. Denominator:
+                  every question in that attempt. Fixed at submission — it is never recalculated. A retake
+                  scores a fresh attempt; only a pass marks the skill Verified.
+                </WhyThis>
+              </span>
             </>
           )}
         </div>
+        {startError && (
+          <div className="error" role="alert" style={{ marginTop: 8, whiteSpace: 'normal', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><IconAlert size={15} /> {startError}</span>
+            <button type="button" className="btn btn-sm btn-secondary" onClick={() => void start(false)}>Retry</button>
+          </div>
+        )}
       </div>
       {lastAttempt && (
         <div className="verify-lastscore">

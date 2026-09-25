@@ -263,6 +263,67 @@ def test_mini_check_pass_completes_lesson(client, docker_skill, student_id, auth
     assert item_id in body["path_progress"]
 
 
+def test_completed_mini_check_cannot_be_overwritten(client, docker_skill, student_id, auth_headers):
+    headers = auth_headers("aisha@student.edu")
+    sk = docker_skill["id"]
+    path = _setup_path(client, headers, sk, student_id)
+    comp = path["items"][0]["competency"]
+    item_id = path["items"][0]["id"]
+    lesson_url = f"/api/students/{student_id}/learning/{sk}/lessons/{comp}"
+    client.post(f"{lesson_url}/generate", json={}, headers=headers)
+    client.post(f"{lesson_url}/start", json={}, headers=headers)
+    lesson = client.get(lesson_url, headers=headers).json()
+    questions = lesson["content"]["mini_check"]["questions"]
+    passed = client.post(
+        f"{lesson_url}/mini-check",
+        json={"answers": [q["correct_answer"] for q in questions]},
+        headers=headers)
+    assert passed.status_code == 200
+    before = client.get(lesson_url, headers=headers).json()
+    path_before = client.get(
+        f"/api/students/{student_id}/learning/{sk}/personalized-path",
+        headers=headers).json()
+
+    rejected = client.post(
+        f"{lesson_url}/mini-check",
+        json={"answers": ["WRONG" for _ in questions]},
+        headers=headers)
+
+    assert rejected.status_code == 409
+    assert "already completed" in rejected.json()["detail"].lower()
+    after = client.get(lesson_url, headers=headers).json()
+    path_after = client.get(
+        f"/api/students/{student_id}/learning/{sk}/personalized-path",
+        headers=headers).json()
+    assert after["state"] == before["state"] == "completed"
+    assert after["mini_check_result"] == before["mini_check_result"]
+    assert after["completed_at"] == before["completed_at"]
+    assert path_after["progress"] == path_before["progress"]
+    assert item_id in (path_after.get("progress") or [])
+
+
+def test_update_to_in_progress_clears_completed_timestamp(client, docker_skill, student_id, auth_headers):
+    headers = auth_headers("aisha@student.edu")
+    sk = docker_skill["id"]
+    path = _setup_path(client, headers, sk, student_id)
+    comp = path["items"][0]["competency"]
+    lesson_url = f"/api/students/{student_id}/learning/{sk}/lessons/{comp}"
+    client.post(f"{lesson_url}/generate", json={}, headers=headers)
+    client.post(f"{lesson_url}/start", json={}, headers=headers)
+    lesson = client.get(lesson_url, headers=headers).json()
+    questions = lesson["content"]["mini_check"]["questions"]
+    client.post(
+        f"{lesson_url}/mini-check",
+        json={"answers": [q["correct_answer"] for q in questions]},
+        headers=headers)
+
+    models.update_lesson_state(student_id, path["id"], comp, "in_progress", None)
+    reopened = models.get_lesson(student_id, path["id"], comp)
+    assert reopened["state"] == "in_progress"
+    assert reopened["mini_check_result"] is None
+    assert reopened["completed_at"] is None
+
+
 # ------------------------------------------------------------------ 9. verified_skills safety
 
 def test_mini_check_does_not_update_verified_skills(client, docker_skill, student_id, auth_headers):

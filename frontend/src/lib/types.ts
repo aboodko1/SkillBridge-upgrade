@@ -560,7 +560,7 @@ export interface RecentJob {
   seniority?: string
   match_pct?: number
   match_reason?: string
-  location_tier?: 'city' | 'country' | 'country_remote' | 'global_remote' | 'unknown' | 'different'
+  location_tier?: 'city' | 'country' | 'country_remote' | 'market' | 'global_remote' | 'unknown' | 'different'
   location_label?: string
   is_expired?: boolean
   expires_at?: string
@@ -576,6 +576,8 @@ export interface RecentJob {
   fetched_at?: string
   link_state?: string
   link_reason?: string
+  link_checked?: boolean
+  apply_safe?: boolean
   provenance?: Record<string, { value?: unknown; basis?: string }>
 }
 
@@ -761,6 +763,8 @@ export interface TargetRoleRequirement {
   student_level: string | null
   status: string
   evidence: 'verified' | 'self_reported' | 'none'
+  matched_by?: 'id' | 'name_exact' | 'name_adjacent' | null
+  matched_skill?: string | null
   contribution_points: number
   max_points: number
 }

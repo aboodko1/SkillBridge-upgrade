@@ -3,10 +3,13 @@ import { api } from '../lib/api'
 import { useApp } from '../AppContext'
 import type { StudentTourState, TourMiniPage, TourStateUpdate, TourWelcomeState } from '../lib/types'
 import {
-  IconDashboard, IconRoles, IconLearning, IconAssessment, IconChat, IconRoadmap, IconXClose,
+  IconTarget, IconLearning, IconTrendingUp, IconVerified, IconAssessment, IconRoadmap, IconXClose,
 } from './Icons'
 
-// ---- Global welcome tour: at most 5 short steps (Phase 4 guide) ------------
+// ---- Global welcome tour: at most 5 short steps (Phase C guide) ------------
+// One idea per step, plain language: what SkillBridge does; how today's
+// learning works; what the percentages mean; why verification matters; and how
+// assessments connect to jobs and progress.
 
 interface TourStep {
   icon: React.ReactNode
@@ -16,29 +19,29 @@ interface TourStep {
 
 const TOUR_STEPS: TourStep[] = [
   {
-    icon: <IconDashboard size={22} />,
-    title: 'Your dashboard',
-    body: "Start here. The 'Next step' on your journey card points at the single most useful action for today.",
-  },
-  {
-    icon: <IconRoles size={22} />,
-    title: 'Choose a destination',
-    body: 'Pick a target role in Skills & Roles — it sets the destination your whole learning plan builds toward.',
+    icon: <IconTarget size={22} />,
+    title: 'What SkillBridge does',
+    body: 'SkillBridge turns your target career into a clear skill plan — and helps you prove those skills instead of just claiming them.',
   },
   {
     icon: <IconLearning size={22} />,
-    title: 'Learn on a plan',
-    body: 'A diagnostic reveals your skill gaps, then a step-by-step plan with milestones guides you to close them.',
+    title: 'How today\u2019s learning works',
+    body: 'Open Learning for one next step, chosen from your skill gaps. Finish it and the next step appears, so you never have to plan the whole journey at once.',
+  },
+  {
+    icon: <IconTrendingUp size={22} />,
+    title: 'What the percentages mean',
+    body: 'Percentages show how much of your target role\u2019s requirements you already meet. They rise as you close real gaps — they are not a grade.',
+  },
+  {
+    icon: <IconVerified size={22} />,
+    title: 'Why verification matters',
+    body: 'Skills you add yourself are claims. A passed final assessment verifies a skill, so employers and matches can trust what you say you can do.',
   },
   {
     icon: <IconAssessment size={22} />,
-    title: 'Practise safely',
-    body: 'Practice scenarios and final assessments let you rehearse without risk and measure your real progress.',
-  },
-  {
-    icon: <IconChat size={22} />,
-    title: 'Mentor & jobs',
-    body: 'Your SkillBridge mentor is optional help whenever you want it, and the job board pairs you with opportunities.',
+    title: 'How assessments lead to jobs',
+    body: 'Each verified skill lifts your match score and readiness, and those power the jobs you see — so assessments connect straight to real progress.',
   },
 ]
 
@@ -54,7 +57,8 @@ interface TourApi {
   skip: () => void
   dontShowAgain: () => void
   finish: () => void
-  replay: () => void
+  replay: (returnTo?: HTMLElement | null) => void
+  returnFocusRef: React.MutableRefObject<HTMLElement | null>
   showMini: (page: TourMiniPage) => boolean
   markMiniDone: (page: TourMiniPage) => void
 }
@@ -70,22 +74,32 @@ export const useTour = (): TourApi => {
 const CACHE_PREFIX = 'sb_tour_cache:'
 
 export function TourProvider({ children }: { children: ReactNode }) {
-  const { session } = useApp()
+  const { session, authBanner } = useApp()
   const isStudent = session?.entity_type === 'student' && !!session?.student?.id
   const studentId = session?.student?.id ?? 0
   const [tour, setTour] = useState<StudentTourState | null>(null)
   const [ready, setReady] = useState(false)
   const [welcomeOpen, setWelcomeOpen] = useState(false)
   const [step, setStep] = useState(0)
+  // Deferred first-run auto-open: waits until the login success overlay is gone
+  // so the welcome tour never stacks a second modal over the auth animation.
+  const [autoOpenPending, setAutoOpenPending] = useState(false)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
 
   // Backend is the source of truth; localStorage is only an optional UI cache
-  // (so a failed fetch still leaves a coherent, honest last-known state).
+  // (so a failed fetch still leaves a coherent, honest last-known state). Reset
+  // all per-account UI on every account switch so no state leaks across logins.
   useEffect(() => {
+    setWelcomeOpen(false)
+    setStep(0)
+    setAutoOpenPending(false)
+    returnFocusRef.current = null
     if (!isStudent || !studentId) {
       setTour(null)
       setReady(true)
       return
     }
+    setReady(false)
     let alive = true
     let cached: StudentTourState | null = null
     try {
@@ -98,12 +112,18 @@ export function TourProvider({ children }: { children: ReactNode }) {
       .then((s) => {
         if (!alive) return
         setTour(s)
-        if (s.welcome_state === 'not_seen') {
-          setStep(0)
-          setWelcomeOpen(true)
+        try {
+          localStorage.setItem(CACHE_PREFIX + studentId, JSON.stringify(s))
+        } catch {
+          /* cache is optional */
         }
+        // Auto-show only for a genuinely new account, and only after the
+        // authoritative backend says so. "Don't show again" always wins.
+        if (s.welcome_state === 'not_seen' && !s.dont_show_again) setAutoOpenPending(true)
       })
       .catch(() => {
+        // Backend down: only a last-known local cache may stand in, and even
+        // then we do not auto-open the tour (that decision is the backend's).
         if (alive && cached) setTour(cached)
       })
       .finally(() => {
@@ -113,6 +133,17 @@ export function TourProvider({ children }: { children: ReactNode }) {
       alive = false
     }
   }, [isStudent, studentId])
+
+  useEffect(() => {
+    if (!autoOpenPending || !ready || authBanner) return
+    if (!tour || tour.welcome_state !== 'not_seen' || tour.dont_show_again) {
+      setAutoOpenPending(false)
+      return
+    }
+    setStep(0)
+    setWelcomeOpen(true)
+    setAutoOpenPending(false)
+  }, [autoOpenPending, ready, authBanner, tour])
 
   const write = useCallback(
     (patch: TourStateUpdate) => {
@@ -161,8 +192,12 @@ export function TourProvider({ children }: { children: ReactNode }) {
     setWelcomeOpen(false)
     write({ welcome_state: 'skipped', dont_show_again: true })
   }, [write])
-  const replay = useCallback(() => {
+  const replay = useCallback((returnTo?: HTMLElement | null) => {
     if (!studentId) return
+    // Remember where to hand focus back to when the replayed tour closes. The
+    // caller can pass the stable trigger (e.g. the account-menu button) because
+    // the menu item that was clicked unmounts before the tour closes.
+    returnFocusRef.current = returnTo ?? (document.activeElement as HTMLElement | null)
     setStep(0)
     setWelcomeOpen(true)
     write({ welcome_state: 'active' })
@@ -170,11 +205,11 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const showMini = useCallback(
     (page: TourMiniPage) => {
-      if (!ready || !tour) return false
+      if (!ready || !tour || welcomeOpen) return false
       if (tour.welcome_state === 'active') return false
       return (tour.mini_states[page] ?? 'not_seen') !== 'completed'
     },
-    [ready, tour],
+    [ready, tour, welcomeOpen],
   )
   const markMiniDone = useCallback(
     (page: TourMiniPage) => {
@@ -194,6 +229,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     dontShowAgain,
     finish,
     replay,
+    returnFocusRef,
     showMini,
     markMiniDone,
   }
@@ -211,19 +247,16 @@ export function TourProvider({ children }: { children: ReactNode }) {
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
 function WelcomeTour() {
-  const { step, next, back, skip, dontShowAgain, finish } = useTour()
+  const { step, next, back, skip, dontShowAgain, finish, returnFocusRef } = useTour()
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const returnFocusRef = useRef<Element | null>(null)
 
   useEffect(() => {
-    returnFocusRef.current = document.activeElement
-    const root = rootRef.current
-    if (root) {
-      root.focus()
-      const first = root.querySelector<HTMLElement>(FOCUSABLE)
-      if (first) first.focus()
-    }
-  }, [])
+    // Replay supplies a stable trigger; an auto-open falls back to whatever had
+    // focus when the dialog mounted. Focus the dialog itself (tabIndex -1) so
+    // the title/body are announced before the controls.
+    if (!returnFocusRef.current) returnFocusRef.current = document.activeElement as HTMLElement | null
+    rootRef.current?.focus()
+  }, [returnFocusRef])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -238,29 +271,35 @@ function WelcomeTour() {
     if (!items.length) return
     const first = items[0]
     const last = items[items.length - 1]
-    if (e.shiftKey && document.activeElement === first) {
+    const active = document.activeElement
+    // Keep focus inside even when it rests on the dialog container itself.
+    if (active === root || !root.contains(active)) {
+      e.preventDefault()
+      ;(e.shiftKey ? last : first).focus()
+    } else if (e.shiftKey && active === first) {
       e.preventDefault()
       last.focus()
-    } else if (!e.shiftKey && document.activeElement === last) {
+    } else if (!e.shiftKey && active === last) {
       e.preventDefault()
       first.focus()
     }
   }
 
   // Focus return: when the dialog unmounts, hand focus back to the trigger
-  // (a no-op when the tour opened automatically from the page background).
+  // (a no-op when the auto-opened trigger is already gone).
   useEffect(() => {
     return () => {
-      const target = returnFocusRef.current as HTMLElement | null
-      if (target && typeof target.focus === 'function' && target.isConnected) target.focus()
+      const target = returnFocusRef.current
+      returnFocusRef.current = null
+      if (target && target.isConnected && typeof target.focus === 'function') target.focus()
     }
-  }, [])
+  }, [returnFocusRef])
 
   const current = TOUR_STEPS[step]
   const isLast = step === TOUR_STEPS.length - 1
 
   return (
-    <div className="tour-backdrop" role="dialog" aria-modal="true" aria-labelledby="tour-title" onKeyDown={onKeyDown}>
+    <div className="tour-backdrop" role="dialog" aria-modal="true" aria-labelledby="tour-title" aria-describedby="tour-body" onKeyDown={onKeyDown}>
       <div className="tour-card" ref={rootRef} tabIndex={-1}>
         <div className="tour-head">
           <span className="tour-eyebrow">Welcome tour · Step {step + 1} of {TOUR_STEPS.length}</span>
@@ -268,7 +307,7 @@ function WelcomeTour() {
         </div>
         <div className="tour-icon" aria-hidden="true">{current.icon}</div>
         <h2 id="tour-title">{current.title}</h2>
-        <p className="tour-body" role="status" aria-live="polite">{current.body}</p>
+        <p className="tour-body" id="tour-body" role="status" aria-live="polite">{current.body}</p>
         <div className="tour-dots" aria-hidden="true">
           {TOUR_STEPS.map((_, i) => (
             <span key={i} className={`tour-dot ${i === step ? 'on' : ''}`} />

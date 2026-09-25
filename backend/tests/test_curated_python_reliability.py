@@ -42,17 +42,15 @@ def test_curated_python_diagnostic_is_exactly_tagged_and_path_is_prerequisite_or
     python = models.get_skill_by_name("Python")
     generated, path = _make_path(client, student_id, headers, python)
 
-    assert len(generated["questions"]) == 9
+    assert len(generated["questions"]) == 6
     assert {q["competency"] for q in generated["questions"]} == {
-        "python_functions", "python_error_handling", "python_data_structures"}
+        "python_functions", "python_error_handling"}
     functions_text = " ".join(f"{q['question']} {q['correct_answer']}" for q in generated["questions"] if q["competency"] == "python_functions").lower()
     errors_text = " ".join(f"{q['question']} {q['correct_answer']}" for q in generated["questions"] if q["competency"] == "python_error_handling").lower()
-    structures_text = " ".join(f"{q['question']} {q['correct_answer']}" for q in generated["questions"] if q["competency"] == "python_data_structures").lower()
     assert "return" in functions_text and "parameter" in functions_text
     assert "valueerror" in errors_text and "try" in errors_text
-    assert "scores" in structures_text and "dictionary" in structures_text
     assert [item["competency"] for item in path["items"]] == [
-        "python_functions", "python_error_handling", "python_data_structures"]
+        "python_functions", "python_error_handling"]
 
 
 def test_all_curated_python_topics_complete_without_verifying_skill_and_cache_exact_answer(

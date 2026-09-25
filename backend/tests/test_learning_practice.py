@@ -172,7 +172,7 @@ def test_ai_practice_response_is_parsed_and_threshold_controls_status(
     assert attempt["feedback"] == "Good applied answer with one small gap."
 
 
-def test_malformed_ai_response_uses_labelled_fallback(
+def test_malformed_ai_response_is_retryable_without_saving_a_grade(
         client, docker_skill, student_id, auth_headers, monkeypatch):
     headers = auth_headers("aisha@student.edu")
     sk = docker_skill["id"]
@@ -184,12 +184,12 @@ def test_malformed_ai_response_uses_labelled_fallback(
         _practice_url(student_id, sk, item["competency"]),
         json={"answer": _rich_practice_answer()}, headers=headers)
 
-    attempt = response.json()["attempt"]
-    assert attempt["source"] == "fallback"
-    assert "basic automated concept-coverage review" in attempt["feedback"]
+    assert response.status_code == 503
+    assert "retry" in response.json()["detail"].lower()
+    assert client.get(_practice_url(student_id, sk, item["competency"]), headers=headers).json()["count"] == 0
 
 
-def test_ai_exception_uses_labelled_fallback(
+def test_ai_exception_is_retryable_without_saving_a_grade(
         client, docker_skill, student_id, auth_headers, monkeypatch):
     headers = auth_headers("aisha@student.edu")
     sk = docker_skill["id"]
@@ -205,7 +205,9 @@ def test_ai_exception_uses_labelled_fallback(
         _practice_url(student_id, sk, item["competency"]),
         json={"answer": _rich_practice_answer()}, headers=headers)
 
-    assert response.json()["attempt"]["source"] == "fallback"
+    assert response.status_code == 503
+    assert "retry" in response.json()["detail"].lower()
+    assert client.get(_practice_url(student_id, sk, item["competency"]), headers=headers).json()["count"] == 0
 
 
 def test_fallback_scores_under_70_as_needs_review():

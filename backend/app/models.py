@@ -2644,7 +2644,6 @@ def get_lesson(student_id, path_id, competency):
 
 def update_lesson_state(student_id, path_id, competency, state, result_json=None):
     with get_cursor() as c:
-        completed_at = "datetime('now')" if state == "completed" else None
         if state == "completed":
             c.execute(
                 """UPDATE learning_lessons SET state=?, mini_check_result_json=?, completed_at=datetime('now')
@@ -2652,7 +2651,7 @@ def update_lesson_state(student_id, path_id, competency, state, result_json=None
                 (state, _json_dumps(result_json), student_id, path_id, competency))
         else:
             c.execute(
-                """UPDATE learning_lessons SET state=?, mini_check_result_json=?
+                """UPDATE learning_lessons SET state=?, mini_check_result_json=?, completed_at=NULL
                    WHERE student_id=? AND personalized_path_id=? AND competency=?""",
                 (state, _json_dumps(result_json), student_id, path_id, competency))
     return get_lesson(student_id, path_id, competency)

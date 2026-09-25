@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import { useApp } from '../AppContext'
 import { api } from '../lib/api'
+import { failureMessage } from '../lib/failureStates'
 import { humanizeTopicLabel } from '../lib/topicLabels'
 import type {
   ActivitySummary, Analysis, CareerRoadmap, DiagnosticQuestion, DiagnosticResult,
   GeneratedDiagnostic, FinalAssessmentStatus, LearningAgentActionType, LearningAgentDecision,
-  LearningItem, LearningResource, Lesson, LessonPractice, PersonalizedPath, PersonalizedPathItem,
-  PersonalizedPathResponse, PracticeAttempt, ScenarioLibrary, ScenarioCard, SkillGap, Student,
-  TopicResult, RoadmapValidation, RoadmapViolation,
+  LearningItem, LearningResource, Lesson, LessonPractice, MiniCheckResult, PersonalizedPath,
+  PersonalizedPathItem, PersonalizedPathResponse, PracticeAttempt, ScenarioLibrary, ScenarioCard,
+  SkillGap, Student, TopicResult, RoadmapValidation, RoadmapViolation,
 } from '../lib/types'
 import {
   CareerProgress,
@@ -31,7 +32,7 @@ import {
   type LearningTab,
 } from '../components/learning'
 import { MiniTourBanner } from '../components/ProductTour'
-import { IconAlert, IconArrowRight, IconAssessment, IconBack, IconBolt, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconExternal, IconLock, IconRoadmap, IconShield, IconTarget } from '../components/Icons'
+import { IconAlert, IconArrowRight, IconAssessment, IconBack, IconBolt, IconBook, IconChat, IconCheck, IconChevron, IconClock, IconExternal, IconLock, IconRefresh, IconRoadmap, IconShield, IconTarget } from '../components/Icons'
 
 function SafeMarkdown({ children }: { children: React.ReactNode }) {
   return <Markdown>{String(children ?? '')}</Markdown>
@@ -323,8 +324,14 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const [activeTab, setActiveTab] = useState<LearningTab>('for-you')
   const [learningView, setLearningView] = useState<'today' | 'paths' | 'lesson'>('today')
   const [showTop, setShowTop] = useState(false)
+  const [showAllModules, setShowAllModules] = useState(false)
+  const [pageLoading, setPageLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [pageRetryKey, setPageRetryKey] = useState(0)
   const [pathsLoaded, setPathsLoaded] = useState(false)
+  const [pathRetryKey, setPathRetryKey] = useState(0)
+  const [pathStatusBySkill, setPathStatusBySkill] = useState<Record<number, 'loading' | 'ready' | 'diagnostic_required' | 'error'>>({})
+  const [pathErrorsBySkill, setPathErrorsBySkill] = useState<Record<number, string>>({})
   const [activity, setActivity] = useState<ActivitySummary | null>(null)
   const [scenarioLib, setScenarioLib] = useState<ScenarioLibrary | null>(null)
   // The stored student profile answers "My Skills": self-reported claims and
@@ -371,22 +378,28 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('load', onScroll) }
   }, [])
 
-  const load = async () => {
+  useEffect(() => {
+    if (!studentId) {
+      setPageLoading(false)
+      return
+    }
+    let alive = true
+    setPageLoading(true)
     setLoadError('')
-    const [aResult, lResult] = await Promise.allSettled([api.analysis(studentId), api.learning(studentId)])
-    if (aResult.status === 'fulfilled') setAnalysis(aResult.value)
-    else {
-      setAnalysis(null)
-      setLoadError(aResult.reason?.message || 'Learning analysis is not available yet.')
-    }
-    if (lResult.status === 'fulfilled') setItems(lResult.value)
-    else {
-      setItems([])
-      setLoadError((prev) => prev || lResult.reason?.message || 'Learning content is not available yet.')
-    }
-  }
-
-  useEffect(() => { if (studentId) void load() }, [studentId])
+    void Promise.allSettled([api.analysis(studentId), api.learning(studentId)]).then(([aResult, lResult]) => {
+      if (!alive) return
+      if (aResult.status === 'fulfilled') setAnalysis(aResult.value)
+      else setAnalysis(null)
+      if (lResult.status === 'fulfilled') setItems(lResult.value)
+      else setItems([])
+      const failure = aResult.status === 'rejected' ? aResult.reason : lResult.status === 'rejected' ? lResult.reason : null
+      if (failure) {
+        setLoadError(failureMessage(failure, 'en', 'Your learning recommendations could not be loaded right now.'))
+      }
+      setPageLoading(false)
+    })
+    return () => { alive = false }
+  }, [studentId, pageRetryKey])
 
   useEffect(() => {
     if (!studentId) return
@@ -419,24 +432,44 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     const ids = openGaps.map((gap) => gap.skill_id)
     if (!studentId || !ids.length) {
       setPathsBySkill({})
+      setPathStatusBySkill({})
+      setPathErrorsBySkill({})
       setPathsLoaded(true)
       return () => { alive = false }
     }
     setPathsLoaded(false)
-    Promise.all(ids.map(async (skillId) => {
+    setPathErrorsBySkill({})
+    setPathStatusBySkill(Object.fromEntries(ids.map((skillId) => [skillId, 'loading' as const])))
+    void Promise.all(ids.map(async (skillId) => {
       try {
         const res = await api.personalizedPath(studentId, skillId)
-        return [skillId, 'diagnostic_required' in res ? null : res] as const
-      } catch {
-        return [skillId, null] as const
+        if ('diagnostic_required' in res) {
+          return { skillId, path: null, status: 'diagnostic_required' as const, error: '' }
+        }
+        return { skillId, path: res, status: 'ready' as const, error: '' }
+      } catch (e: unknown) {
+        return {
+          skillId,
+          path: null,
+          status: 'error' as const,
+          error: failureMessage(e, 'en', 'This personalized path could not be loaded right now.'),
+        }
       }
     })).then((entries) => {
       if (!alive) return
-      setPathsBySkill(Object.fromEntries(entries))
+      setPathsBySkill((prev) => {
+        const next = { ...prev }
+        for (const entry of entries) {
+          if (entry.status !== 'error') next[entry.skillId] = entry.path
+        }
+        return next
+      })
+      setPathStatusBySkill(Object.fromEntries(entries.map((entry) => [entry.skillId, entry.status])))
+      setPathErrorsBySkill(Object.fromEntries(entries.filter((entry) => entry.error).map((entry) => [entry.skillId, entry.error])))
       setPathsLoaded(true)
     })
     return () => { alive = false }
-  }, [studentId, openGapSkillKey])
+  }, [studentId, openGapSkillKey, pathRetryKey, pageRetryKey])
 
   // "My Skills" answers from the stored student profile: every self-reported
   // claim (profileSource 'claim') plus every officially verified skill
@@ -474,7 +507,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const continueSkills = openGaps.filter((gap) => {
     const path = pathsBySkill[gap.skill_id]
     const progress = topicProgressFor(path)
-    return !!path && progress.hasTopics && !progress.complete
+    return pathStatusBySkill[gap.skill_id] !== 'error' && !!path && progress.hasTopics && !progress.complete
   })
   const completedLearningSkills = allGaps.filter((gap) => {
     const progress = topicProgressFor(pathsBySkill[gap.skill_id])
@@ -620,21 +653,26 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     const doneSet = new Set(path?.progress ?? [])
     const items = path?.items ?? []
     const nextCompetency = items.find((it) => !doneSet.has(it.id))?.competency ?? items[0]?.competency ?? null
+    const pathStatus = pathStatusBySkill[gap.skill_id]
     return {
       gap,
       path,
       progress,
       nextCompetency,
       minutes: sumPathMinutes(path),
-      status: !path ? 'diagnostic' as const : progress.complete ? 'done' as const : progress.done > 0 ? 'in-progress' as const : 'not-started' as const,
+      status: pathStatus === 'error' ? 'error' as const
+        : pathStatus === 'diagnostic_required' ? 'diagnostic' as const
+          : !path ? 'unavailable' as const
+            : progress.complete ? 'done' as const
+              : progress.done > 0 ? 'in-progress' as const : 'not-started' as const,
     }
   })
-  const currentSkillId = stepperRows.find((r) => r.status !== 'done')?.gap.skill_id ?? null
+  const currentSkillId = stepperRows.find((r) => r.status !== 'done' && r.status !== 'error')?.gap.skill_id ?? null
 
   const topicCategories = [...new Set(skillsForTab.map((g) => g.category).filter(Boolean))]
   const visibleStepperRows = topicFilter === 'all' ? stepperRows : stepperRows.filter((r) => r.gap.category === topicFilter)
-  const shownStepperRows = visibleStepperRows.slice(0, 8)
-  const moreModulesCount = visibleStepperRows.length - shownStepperRows.length
+  const shownStepperRows = showAllModules ? visibleStepperRows : visibleStepperRows.slice(0, 8)
+  const moreModulesCount = visibleStepperRows.length - (showAllModules ? visibleStepperRows.length : Math.min(8, visibleStepperRows.length))
 
   const openLessonTopic = (skillId: number, competency: string, tab?: 'learn' | 'example' | 'practice' | 'discuss' | 'mini_check') => {
     if (!competency) return
@@ -656,8 +694,10 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
     onNavigate?.('scenarios', { skillId: selectedGap?.skill_id ?? 0, roleTitle: analysis?.role_title || me?.student?.target_role?.title || '' })
   }
   const goAssessments = () => onNavigate?.('assessments')
+  const retryPaths = () => setPathRetryKey((key) => key + 1)
   const viewAllModules = () => {
     setActiveTab('for-you')
+    setShowAllModules(false)
     setLearningView('paths')
     requestAnimationFrame(() => document.querySelector('.learning-page .focus-flow')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
@@ -674,20 +714,10 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   const journeyPath = journeyGap ? (pathsBySkill[journeyGap.skill_id] ?? null) : null
   const journeyDoneIds = new Set(journeyPath?.progress ?? [])
   const journeyTopic = journeyPath?.items.find((it) => !journeyDoneIds.has(it.id)) ?? journeyPath?.items[0] ?? null
-  const journeyPlanlessGap = openGaps.find((g) => !pathsBySkill[g.skill_id]) ?? null
+  const journeyPlanlessGap = openGaps.find((g) => pathStatusBySkill[g.skill_id] === 'diagnostic_required') ?? null
+  const journeyPathErrorGap = openGaps.find((g) => pathStatusBySkill[g.skill_id] === 'error') ?? null
   const journeyOpenPaths = openGaps.filter((g) => !!pathsBySkill[g.skill_id])
-  const todayAction = !pathsLoaded ? null
-    : journeyGap && journeyTopic
-      ? { label: `Continue ${journeyGap.skill_name}`, run: () => openLessonTopic(journeyGap.skill_id, journeyTopic.competency) }
-      : journeyPlanlessGap
-        ? { label: `Start ${journeyPlanlessGap.skill_name} diagnostic`, run: () => startLearning(journeyPlanlessGap.skill_id) }
-        : journeyOpenPaths.length > 0
-          ? { label: 'Start your first topic', run: () => startLearning(openGaps[0].skill_id) }
-          : analysis && !targetTitle
-            ? { label: 'Choose a target role', run: () => onNavigate?.('skills') }
-            : analysis && targetTitle
-              ? { label: 'Explore my paths', run: viewAllModules }
-              : null
+  const pageContentReady = !pageLoading && !loadError
 
   return (
     <div className="learning-page">
@@ -748,7 +778,6 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
           <p className="learning-hero-eyebrow">Learning</p>
           <h1>Build the skills your target role expects.</h1>
           <p>Follow one personalized path from skill gap to practice and verified progress. Your AI Tutor is available whenever you need help.</p>
-          {learningView === 'today' && todayAction && <button type="button" className="btn btn-primary focus-hero-action" onClick={todayAction.run}>{todayAction.label} <IconArrowRight size={14} /></button>}
         </div>
         <div className="hero-target-card hcard-opportunity">
           <div className="hero-target-card-head"><IconRoadmap size={15} /> Target role</div>
@@ -757,7 +786,15 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
             <>
               <p className="hero-progress-label" title="Level-aware coverage of your target role's required skills (backend-computed).">
                 Current requirement coverage <strong>{matchPct}%</strong>{' '}
-                <WhyThis>Coverage compares your verified and self-reported evidence against the skills this target role lists (level-aware). It measures how far your profile reaches into the role's requirements — it is not a hiring guarantee.</WhyThis>
+                <WhyThis>
+                  Numerator: sum of per-required-skill credit (0–1 each — full at/above the required level,
+                  partial below it, reduced for adjacent-name evidence, 0 with no evidence). Denominator: the
+                  number of required skills the target role lists. Source: GET /api/students/&lt;id&gt;/analysis
+                  {' '}→ metrics.target_requirement_coverage (backend-computed). Rounding: 1 decimal in the
+                  backend, shown here as a whole percent. Included: verified and self-reported evidence.
+                  Excluded: skills that are not requirements of this role. Required skills with no evidence
+                  stay in the denominator at 0. Not course progress and not a hiring guarantee.
+                </WhyThis>
               </p>
               <div className="progress-track"><div className="progress-fill" style={{ width: `${matchPct}%` }} /></div>
             </>
@@ -781,15 +818,34 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         <button type="button" className={learningView === 'lesson' ? 'active' : ''} aria-current={learningView === 'lesson' ? 'step' : undefined} onClick={() => setLearningView('lesson')} disabled={!selectedGap}><span>03</span> Lesson</button>
       </nav>
 
-      {learningView === 'today' && <>
+      {pageLoading && (
+        <section className="learning-page-state" role="status" aria-label="Loading learning plan">
+          <span className="learning-state-spinner" aria-hidden="true" />
+          <div><strong>Loading your learning plan…</strong><p>We’re checking your target, recommendations, and saved paths.</p></div>
+        </section>
+      )}
+      {!pageLoading && loadError && (
+        <section className="learning-page-state learning-page-error" role="alert">
+          <div><strong>We couldn’t load your learning plan.</strong><p>{loadError}</p></div>
+          <button type="button" className="btn btn-primary" onClick={() => setPageRetryKey((key) => key + 1)}>Retry learning plan</button>
+        </section>
+      )}
+      {pageContentReady && learningView === 'today' && <>
       <section className="journey-band" aria-label="Continue your plan">
-        {pathsLoaded && journeyGap && journeyTopic ? (
+        {!pathsLoaded ? (
+          <div className="journey-band-inner journey-path-loading" role="status">
+            <span className="learning-state-spinner" aria-hidden="true" />
+            <div><strong>Loading your personalized paths…</strong><p>We’re matching your open skill gaps to the right topics.</p></div>
+          </div>
+        ) : pathsLoaded && journeyGap && journeyTopic ? (
           <div className="journey-band-inner">
             <p className="journey-eyebrow">Continue your plan</p>
             <CurrentLessonCard
               skillName={journeyGap.skill_name}
               topicTitle={humanizeTopicLabel(journeyTopic.title)}
               estimatedMinutes={journeyTopic.estimated_minutes}
+              completedTopics={journeyPath ? topicProgressFor(journeyPath).done : 0}
+              totalTopics={journeyPath ? topicProgressFor(journeyPath).total : 0}
               purpose={`Added because your diagnostic score was ${Math.round(journeyTopic.diagnostic_score)}%.`}
               onContinue={() => openLessonTopic(journeyGap.skill_id, journeyTopic.competency)}
             />
@@ -799,7 +855,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
               </p>
             )}
           </div>
-        ) : pathsLoaded && journeyPlanlessGap ? (
+        ) : journeyPlanlessGap ? (
           <div className="journey-band-inner journey-empty">
             <p className="journey-eyebrow">Continue your plan</p>
             <div className="journey-card">
@@ -815,6 +871,21 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
                 <button className="btn btn-primary" onClick={() => startLearning(journeyPlanlessGap.skill_id)}>
                   <IconAssessment size={14} /> Start a diagnostic
                 </button>
+              </div>
+            </div>
+          </div>
+        ) : journeyPathErrorGap ? (
+          <div className="journey-band-inner journey-empty" role="alert">
+            <p className="journey-eyebrow">Continue your plan</p>
+            <div className="journey-card">
+              <div className="journey-card-icon"><IconAlert size={18} /></div>
+              <div className="journey-card-copy">
+                <span className="cc-kicker">{journeyPathErrorGap.skill_name}</span>
+                <h3>This path didn’t load</h3>
+                <p className="muted small">{pathErrorsBySkill[journeyPathErrorGap.skill_id] || 'We couldn’t load this personalized path. Your saved progress is still safe.'}</p>
+              </div>
+              <div className="journey-card-actions">
+                <button className="btn btn-primary" onClick={retryPaths}><IconRefresh size={14} /> Retry path</button>
               </div>
             </div>
           </div>
@@ -875,7 +946,9 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
         ) : null}
       </section>
 
-      <section className="lp-stat-grid" aria-label="Learning stats">
+      <details className="learning-snapshot">
+        <summary>Learning snapshot <span>Progress, time, streak, and verified skills</span></summary>
+        <section className="lp-stat-grid" aria-label="Learning stats">
         <article className="lp-stat-card hcard-progress">
           <div className="lp-stat-top">
             <span className="lp-stat-icon blue"><IconAssessment size={18} /></span>
@@ -927,14 +1000,26 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
             </div>
           </div>
           <div className="progress-track on-light"><div className="progress-fill" style={{ width: `${verifiedRequired.total > 0 ? verifiedRequired.pct : 0}%`, background: 'var(--sb-green)' }} /></div>
-          <p className="lp-stat-sub">{verifiedRequired.total > 0 ? `${verifiedRequired.verified} of ${verifiedRequired.total} target skills verified` : 'verified via assessments'}</p>
+          <p className="lp-stat-sub">
+            {verifiedRequired.total > 0
+              ? `${verifiedRequired.verified} of ${verifiedRequired.total} still-open requirements have verified evidence`
+              : 'verified only via passed assessments'}
+            {' '}<WhyThis>
+              Numerator: required skills that are not yet strong but have a passed-assessment record.
+              Denominator: required skills that are not yet strong (gap or missing). Source: your profile's
+              verified_skills matched against the target role's requirements. Rounding: nearest whole percent.
+              Included: passed Final Assessments only. Excluded: self-reported, CV-detected, practiced and
+              topic-completed skills — none of these count as verified. This is not a role-readiness claim.
+            </WhyThis>
+          </p>
         </article>
-      </section>
+        </section>
+      </details>
 
       <button type="button" className="focus-secondary-link" onClick={viewAllModules}>Explore all my paths <IconArrowRight size={14} /></button>
       </>}
 
-      {learningView === 'paths' && <>
+      {pageContentReady && learningView === 'paths' && <>
       <div className="learning-layout">
         <main className="panel path-panel hcard-info">
           <div className="panel-head">
@@ -953,7 +1038,13 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
             </select>
           </div>
 
-          {visibleStepperRows.length === 0 ? (
+          {!pathsLoaded && (
+            <div className="path-load-state" role="status">
+              <span className="learning-state-spinner" aria-hidden="true" />
+              <div><strong>Loading your learning paths…</strong><p>Your modules and saved progress will appear here.</p></div>
+            </div>
+          )}
+          {pathsLoaded && visibleStepperRows.length === 0 ? (
             <EmptyLearningState title="No skill gaps yet" body="Select a target role on Skills & Roles to see your gaps and their personalized paths." />
           ) : (
             <>
@@ -963,7 +1054,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
                   return (
                     <li
                       key={row.gap.skill_id}
-                      className={`path-item ${row.status === 'done' ? 'is-done' : ''}`}
+                      className={`path-item ${row.status === 'done' ? 'is-done' : ''} ${row.status === 'error' ? 'is-error' : ''}`}
                       data-current={row.gap.skill_id === currentSkillId}
                     >
                       <span className="path-marker">{row.status === 'done' ? <IconCheck size={13} /> : n}</span>
@@ -983,9 +1074,14 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
                         </div>
                         {row.status === 'done' ? (
                           <span className="status-pill passed">Completed</span>
-                        ) : row.status === 'diagnostic' ? (
+                        ) : row.status === 'error' ? (
+                          <div className="path-row-action">
+                            <span className="path-row-error" role="alert">{pathErrorsBySkill[row.gap.skill_id] || 'This path could not be loaded.'}</span>
+                            <button className="btn" onClick={retryPaths}><IconRefresh size={14} /> Retry</button>
+                          </div>
+                        ) : row.status === 'diagnostic' || row.status === 'unavailable' ? (
                           <button className="btn btn-primary" onClick={() => startLearning(row.gap.skill_id)}>
-                            Start <IconArrowRight size={14} />
+                            {row.status === 'diagnostic' ? 'Start diagnostic' : 'Start'} <IconArrowRight size={14} />
                           </button>
                         ) : (
                           <button className="btn" onClick={() => openLessonTopic(row.gap.skill_id, row.nextCompetency ?? '')}>
@@ -998,8 +1094,13 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
                 })}
               </ol>
               {moreModulesCount > 0 && (
-                <button className="btn btn-ghost view-all-modules" onClick={viewAllModules} aria-label={`View all ${moreModulesCount} more modules`}>
+                <button className="btn btn-ghost view-all-modules" onClick={() => setShowAllModules(true)} aria-expanded="false" aria-label={`Show ${moreModulesCount} more modules`}>
                   +{moreModulesCount} more module{moreModulesCount === 1 ? '' : 's'} <IconArrowRight size={14} />
+                </button>
+              )}
+              {showAllModules && visibleStepperRows.length > 8 && (
+                <button className="btn btn-ghost view-all-modules" onClick={() => setShowAllModules(false)} aria-expanded="true">
+                  Show fewer modules
                 </button>
               )}
             </>
@@ -1150,25 +1251,27 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
       </details>
       </>}
 
-      {learningView === 'lesson' && selectedGap && (
+      {pageContentReady && learningView === 'lesson' && selectedGap && (
         <div className="focus-lesson-shell">
           <button type="button" className="focus-back" onClick={() => setLearningView('paths')}><IconBack size={14} /> Back to my paths</button>
-        <SkillDetailPanel
-          studentId={studentId}
-          gap={selectedGap}
-          item={itemBySkill.get(selectedGap.skill_id)}
-          path={pathsBySkill[selectedGap.skill_id]}
-          roleTitle={analysis?.role_title}
-          startSignal={learningStart?.skillId === selectedGap.skill_id ? learningStart.signal : 0}
-          focusSignal={lessonFocus?.skillId === selectedGap.skill_id ? lessonFocus : null}
-          onPathChange={(path) => setPathsBySkill((prev) => ({ ...prev, [selectedGap.skill_id]: path }))}
-          onToggleStep={(n) => {
-            const item = itemBySkill.get(selectedGap.skill_id)
-            if (item) void toggleStep(item, n)
-          }}
-          onCompetencyChange={setCopilotCompetency}
-          onOpenTopic={(competency, tab) => openLessonTopic(selectedGap.skill_id, competency, tab)}
-        />
+          <SkillDetailPanel
+            key={selectedGap.skill_id}
+            studentId={studentId}
+            gap={selectedGap}
+            item={itemBySkill.get(selectedGap.skill_id)}
+            path={pathsBySkill[selectedGap.skill_id]}
+            roleTitle={analysis?.role_title}
+            startSignal={learningStart?.skillId === selectedGap.skill_id ? learningStart.signal : 0}
+            focusSignal={lessonFocus?.skillId === selectedGap.skill_id ? lessonFocus : null}
+            initialPath={pathsBySkill[selectedGap.skill_id]}
+            onPathChange={(path) => setPathsBySkill((prev) => ({ ...prev, [selectedGap.skill_id]: path }))}
+            onToggleStep={(n) => {
+              const item = itemBySkill.get(selectedGap.skill_id)
+              if (item) void toggleStep(item, n)
+            }}
+            onCompetencyChange={setCopilotCompetency}
+            onOpenTopic={(competency, tab) => openLessonTopic(selectedGap.skill_id, competency, tab)}
+          />
         </div>
       )}
 
@@ -1181,7 +1284,7 @@ export default function LearningPage({ onNavigate, initialFocus, onFocusConsumed
   )
 }
 
-function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, focusSignal, onPathChange, onToggleStep, onCompetencyChange, onOpenTopic }: {
+function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, focusSignal, initialPath, onPathChange, onToggleStep, onCompetencyChange, onOpenTopic }: {
   studentId: number
   gap: SkillGap
   item?: LearningItem
@@ -1189,6 +1292,7 @@ function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, 
   roleTitle?: string
   startSignal?: number
   focusSignal?: { skillId?: number; competency: string; signal: number; tab?: 'learn' | 'example' | 'practice' | 'discuss' | 'mini_check' } | null
+  initialPath?: PersonalizedPath | null
   onPathChange?: (path: PersonalizedPath | null) => void
   onToggleStep: (step: number) => void
   onCompetencyChange: (competency: string | null) => void
@@ -1215,6 +1319,7 @@ function SkillDetailPanel({ studentId, gap, item, path, roleTitle, startSignal, 
         refreshKey={diagRefreshKey}
         startSignal={startSignal}
         focusSignal={focusSignal}
+        initialPath={initialPath}
         onPathChange={onPathChange}
         onCompetencyChange={onCompetencyChange}
       />
@@ -1476,6 +1581,13 @@ function DiagnosticPanel({ studentId, skillId, skillName, startSignal = 0, onCom
           <div className="diag-result-score">
             <strong>{diag.score ?? '–'}%</strong>
             <span>overall</span>
+            <WhyThis>
+              Numerator: each topic's share of correctly answered diagnostic questions, averaged across topics.
+              Denominator: one per diagnostic topic. Source: GET /api/students/&lt;id&gt;/learning/&lt;skillId&gt;/diagnostic.
+              Rounding: 1 decimal in the backend, shown here as a whole percent. Included: this diagnostic's
+              questions only. Excluded: lesson Mini Checks and Final Assessments — a diagnostic never verifies
+              a skill and never changes your profile level.
+            </WhyThis>
           </div>
           <div className="diag-result-groups">
             <div className="diag-group strong"><h4>Strong Topics</h4>{topicList(diag.topic_results, 'mastered')}</div>
@@ -1509,15 +1621,19 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
 }) {
   const [lesson, setLesson] = useState<Lesson | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [lessonLoadError, setLessonLoadError] = useState('')
+  const [lessonRetryKey, setLessonRetryKey] = useState(0)
   const [tab, setTab] = useState<'learn' | 'example' | 'practice' | 'discuss' | 'mini_check'>(initialTab)
   const [miniAnswers, setMiniAnswers] = useState<Record<string, string>>({})
-  const [result, setResult] = useState<{ score: number; passed: boolean; correct: number; total: number } | null>(null)
+  const [result, setResult] = useState<MiniCheckResult | null>(null)
+  const [miniCheckError, setMiniCheckError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [practiceAnswer, setPracticeAnswer] = useState('')
   const [followUpAnswer, setFollowUpAnswer] = useState('')
   const [practiceAttempt, setPracticeAttempt] = useState<PracticeAttempt | null>(null)
   const [practiceAttemptCount, setPracticeAttemptCount] = useState(0)
+  const [practiceHistoryError, setPracticeHistoryError] = useState('')
+  const [practiceHistoryRetryKey, setPracticeHistoryRetryKey] = useState(0)
   const [practiceSubmitting, setPracticeSubmitting] = useState(false)
   const [practiceError, setPracticeError] = useState('')
   const practiceInputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -1532,23 +1648,28 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
   useEffect(() => {
     let alive = true
     setLoading(true)
+    setLessonLoadError('')
+    setLesson(null)
+    setResult(null)
+    setMiniAnswers({})
+    setMiniCheckError('')
     api.lessonGenerate(studentId, skillId, competency)
       .then(async (l) => {
         if (!alive) return
-        if (l.state === 'not_started') {
-          const startedLesson = await api.lessonStart(studentId, skillId, competency)
-          if (!alive) return
-          setLesson(startedLesson)
-          onStateChange?.(startedLesson.state)
-          return
-        }
-        setLesson(l)
-        onStateChange?.(l.state)
+        const nextLesson = l.state === 'not_started'
+          ? await api.lessonStart(studentId, skillId, competency)
+          : l
+        if (!alive) return
+        setLesson(nextLesson)
+        setResult(nextLesson.mini_check_result)
+        onStateChange?.(nextLesson.state)
       })
-      .catch((e) => { if (alive) setError(e?.message || 'Could not load lesson') })
+      .catch((e: unknown) => {
+        if (alive) setLessonLoadError(failureMessage(e, 'en', 'This lesson could not be loaded right now. Your saved progress is still safe.'))
+      })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [studentId, skillId, competency])
+  }, [studentId, skillId, competency, lessonRetryKey])
 
   useEffect(() => {
     if (tab === 'discuss') window.dispatchEvent(new CustomEvent('copilot:focus'))
@@ -1557,19 +1678,21 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
   useEffect(() => {
     if (!lesson) return
     let alive = true
+    setPracticeHistoryError('')
     api.lessonPracticeAttempts(studentId, skillId, competency)
       .then((res) => {
         if (!alive) return
         setPracticeAttempt(res.latest)
         setPracticeAttemptCount(res.count)
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (!alive) return
         setPracticeAttempt(null)
         setPracticeAttemptCount(0)
+        setPracticeHistoryError(failureMessage(e, 'en', 'Practice history could not be loaded. Your lesson is still available.'))
       })
     return () => { alive = false }
-  }, [lesson?.id, studentId, skillId, competency])
+  }, [lesson?.id, studentId, skillId, competency, practiceHistoryRetryKey])
 
   const submitPractice = async (sourceAttemptId?: number | null) => {
     const answer = (sourceAttemptId ? followUpAnswer : practiceAnswer).trim()
@@ -1583,7 +1706,7 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
       if (sourceAttemptId) setFollowUpAnswer('')
       else setPracticeAnswer('')
     } catch (e: unknown) {
-      setPracticeError((e as Error)?.message || 'Practice evaluation failed')
+      setPracticeError(failureMessage(e, 'en', 'Practice evaluation failed. Your response was not saved.'))
     } finally {
       setPracticeSubmitting(false)
     }
@@ -1601,14 +1724,16 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
     const questions = lesson.content.mini_check.questions
     const orderedAnswers = questions.map((q) => miniAnswers[q.id] || '')
     setSubmitting(true)
+    setMiniCheckError('')
     try {
       const res = await api.lessonMiniCheck(studentId, skillId, competency, orderedAnswers)
-      setResult(res.lesson.mini_check_result || { score: 0, passed: false, correct: 0, total: questions.length })
+      const nextResult = res.lesson.mini_check_result || { score: 0, passed: false, correct: 0, total: questions.length }
+      setResult(nextResult)
       setLesson(res.lesson)
       onStateChange?.(res.lesson.state)
-      if (res.lesson.mini_check_result?.passed) onComplete()
+      if (nextResult.passed) onComplete()
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'Submission failed')
+      setMiniCheckError(failureMessage(e, 'en', 'Mini Check submission failed. Your answers were not saved.'))
     } finally {
       setSubmitting(false)
     }
@@ -1646,12 +1771,29 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
       </div>
     )
   }
-  if (error) return <div className="error learning-error">{error}<button className="btn-link" onClick={onClose}>Back to path</button></div>
+  if (lessonLoadError) {
+    return (
+      <div className="lesson-load-error error learning-error" role="alert">
+        <div><strong>This lesson could not be loaded.</strong><p>{lessonLoadError}</p></div>
+        <div className="lesson-load-error-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setLessonRetryKey((key) => key + 1)}>Retry lesson</button>
+          <button type="button" className="btn" onClick={onClose}>Back to path</button>
+        </div>
+      </div>
+    )
+  }
   if (!lesson) return null
 
   const content = lesson.content
   const recommendedResources = content.resources || []
   const nextTab = () => { const idx = tabs.findIndex((step) => step === tab); setTab(tab === 'discuss' ? 'mini_check' : tabs[Math.min(tabs.length - 1, idx + 1)]) }
+  const previousTab = () => {
+    if (tab === 'learn') return
+    if (tab === 'mini_check') { setTab('practice'); return }
+    const sequence = [...tabs, 'discuss'] as const
+    const idx = sequence.indexOf(tab)
+    setTab(sequence[Math.max(0, idx - 1)])
+  }
   const practiceData = (content.practice ?? {}) as LessonPractice
   const practiceTitle = typeof practiceData.title === 'string' && practiceData.title.trim()
     ? practiceData.title
@@ -1701,6 +1843,16 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
         <span>{tab === 'discuss' ? 'Optional help' : `Step ${tabs.findIndex((step) => step === tab) + 1} of ${tabs.length}`}</span>
         <button type="button" className="btn-link" onClick={() => setTab('discuss')}><IconChat size={14} /> Ask AI Tutor about this topic</button>
       </div>
+      <nav className="focus-lesson-navigation" aria-label="Lesson navigation">
+        <button type="button" className="btn" onClick={previousTab} disabled={tab === 'learn'}>Back</button>
+        {isCompleted && hasNext && onNext ? (
+          <button type="button" className="btn btn-primary" onClick={onNext}>Next Lesson <IconArrowRight size={14} /></button>
+        ) : !isCompleted && tab !== 'mini_check' ? (
+          <button type="button" className="btn btn-primary" onClick={nextTab}>
+            {tab === 'discuss' || (tab === 'practice' && practiceAttempt?.status === 'ready') ? 'Continue to Mini Check' : 'Continue'} <IconArrowRight size={14} />
+          </button>
+        ) : null}
+      </nav>
 
       <div className="lesson-content">
         {tab === 'learn' && (
@@ -1721,82 +1873,94 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
                 ))}
               </div>
             )}
-            {content.learn.job_relevance && (
-              <div className="lesson-quality-section">
-                <div className="lesson-quality-label">Why this matters for your role</div>
-                <p>{content.learn.job_relevance}</p>
-              </div>
-            )}
-            {content.learn.common_mistake && (
-              <div className="lesson-quality-section">
-                <div className="lesson-quality-label">Common mistake</div>
-                <p>{content.learn.common_mistake}</p>
-              </div>
-            )}
-            {content.learn.worked_example && (
-              <div className="lesson-quality-section">
-                <div className="lesson-quality-label">Worked example</div>
-                <p>{content.learn.worked_example}</p>
-              </div>
-            )}
-            {content.learn.depth_note && (
-              <div className="lesson-quality-section">
-                <p style={{ fontStyle: 'italic' }}>{content.learn.depth_note}</p>
-              </div>
-            )}
-            {content.learn.version_note && (
-              <div className="lesson-version-note">{content.learn.version_note}</div>
-            )}
-            {content.learn.grounding_sources && content.learn.grounding_sources.length > 0 && (
-              <div className="lesson-grounding-sources">
-                Sources: {content.learn.grounding_sources.map((s, i) => (
-                  <span key={i}>{i > 0 && ' · '}<a href={s.url} target="_blank" rel="noopener noreferrer">{s.title || s.source || 'Source'}</a></span>
-                ))}
-              </div>
-            )}
-            {recommendedResources.length > 0 && (
-              <section className="lesson-resource-panel" aria-label="Recommended Resources">
-                <div className="lesson-resource-head">
-                  <div>
-                    <span>Recommended Resources</span>
-                    <strong>{recommendedResources.length} curated source{recommendedResources.length === 1 ? '' : 's'}</strong>
-                  </div>
-                </div>
-                <div className="lesson-resource-list">
-                  {recommendedResources.map((resource, i) => {
-                    const status = resourceStatus(resource)
-                    return (
-                      <a className="lesson-resource-card" href={resource.url} target="_blank" rel="noopener noreferrer" key={`${resource.url}-${i}`}>
-                        <div className="lesson-resource-card-head">
-                          <span className="resource-type">{resourceTypeLabel(resource)}</span>
-                          <span className={`lesson-resource-status ${status.key}`}>{status.label}</span>
-                        </div>
-                        <strong>{resource.title}</strong>
-                        <small>{resource.source || 'Curated source'}</small>
-                        {resource.reason && <p>{resource.reason}</p>}
-                        <span className="lesson-resource-open">Open resource <IconExternal size={13} /></span>
-                      </a>
-                    )
-                  })}
-                </div>
-              </section>
-            )}
-            {!isCompleted && <button className="btn btn-primary" onClick={nextTab}>Continue</button>}
-          </div>
-        )}
-        {tab === 'example' && (
+             <details className="lesson-optional-details">
+               <summary>Optional theory and lesson details <span>Role relevance, examples, and sources</span></summary>
+               <div className="lesson-optional-content">
+                 {content.learn.job_relevance && (
+                   <div className="lesson-quality-section">
+                     <div className="lesson-quality-label">Why this matters for your role</div>
+                     <p>{content.learn.job_relevance}</p>
+                   </div>
+                 )}
+                 {content.learn.common_mistake && (
+                   <div className="lesson-quality-section">
+                     <div className="lesson-quality-label">Common mistake</div>
+                     <p>{content.learn.common_mistake}</p>
+                   </div>
+                 )}
+                 {content.learn.worked_example && (
+                   <div className="lesson-quality-section">
+                     <div className="lesson-quality-label">Worked example</div>
+                     <p>{content.learn.worked_example}</p>
+                   </div>
+                 )}
+                 {content.learn.depth_note && (
+                   <div className="lesson-quality-section">
+                     <p style={{ fontStyle: 'italic' }}>{content.learn.depth_note}</p>
+                   </div>
+                 )}
+                 {content.learn.version_note && (
+                   <div className="lesson-version-note">{content.learn.version_note}</div>
+                 )}
+                 {content.learn.grounding_sources && content.learn.grounding_sources.length > 0 && (
+                   <div className="lesson-grounding-sources">
+                     Sources: {content.learn.grounding_sources.map((s, i) => (
+                       <span key={i}>{i > 0 && ' · '}<a href={s.url} target="_blank" rel="noopener noreferrer">{s.title || s.source || 'Source'}</a></span>
+                     ))}
+                   </div>
+                 )}
+               </div>
+             </details>
+             {recommendedResources.length > 0 && (
+               <details className="lesson-resource-details">
+                 <summary>Recommended Resources <span>{recommendedResources.length} curated source{recommendedResources.length === 1 ? '' : 's'}</span></summary>
+                 <section className="lesson-resource-panel" aria-label="Recommended Resources">
+                   <div className="lesson-resource-head">
+                     <div>
+                       <span>Recommended Resources</span>
+                       <strong>{recommendedResources.length} curated source{recommendedResources.length === 1 ? '' : 's'}</strong>
+                     </div>
+                   </div>
+                   <div className="lesson-resource-list">
+                     {recommendedResources.map((resource, i) => {
+                       const status = resourceStatus(resource)
+                       return (
+                         <a className="lesson-resource-card" href={resource.url} target="_blank" rel="noopener noreferrer" key={`${resource.url}-${i}`}>
+                           <div className="lesson-resource-card-head">
+                             <span className="resource-type">{resourceTypeLabel(resource)}</span>
+                             <span className={`lesson-resource-status ${status.key}`}>{status.label}</span>
+                           </div>
+                           <strong>{resource.title}</strong>
+                           <small>{resource.source || 'Curated source'}</small>
+                           {resource.reason && <p>{resource.reason}</p>}
+                           <span className="lesson-resource-open">Open resource <IconExternal size={13} /></span>
+                         </a>
+                       )
+                     })}
+                   </div>
+                 </section>
+               </details>
+             )}
+           </div>
+         )}
+         {tab === 'example' && (
           <div className="lesson-example">
             <h3>{content.example.title}</h3>
             <div className="lesson-example-type"><span className="chip-btn">{content.example.type}</span></div>
             <div className="lesson-example-content"><SafeMarkdown>{content.example.content}</SafeMarkdown></div>
-            <div className="lesson-explanation"><SafeMarkdown>{content.example.explanation}</SafeMarkdown></div>
-            {!isCompleted && <button className="btn btn-primary" onClick={nextTab}>Continue</button>}
-          </div>
+             <div className="lesson-explanation"><SafeMarkdown>{content.example.explanation}</SafeMarkdown></div>
+           </div>
         )}
         {tab === 'practice' && (
-          <div className="lesson-practice">
-            <h3>Practice</h3>
-            {latestRemediation ? (
+           <div className="lesson-practice">
+             <h3>Practice</h3>
+             {practiceHistoryError && (
+               <div className="practice-history-error error learning-error" role="alert">
+                 <span>{practiceHistoryError}</span>
+                 <button type="button" className="btn btn-sm" onClick={() => setPracticeHistoryRetryKey((key) => key + 1)}>Retry history</button>
+               </div>
+             )}
+             {latestRemediation ? (
               <div className="remediation-panel">
                 <div className="remediation-head">
                   <span className="practice-task-label">Personalized Review</span>
@@ -1877,6 +2041,13 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
                   <div className="practice-score">
                     <strong>{Math.round(practiceAttempt.score)}%</strong>
                     <span>{practiceAttempt.status === 'ready' ? 'Ready' : 'Needs review'}</span>
+                    {' '}<WhyThis>
+                      Numerator: a 0–100 practice-review score from the evaluator named below (AI practice
+                      evaluation, or a deterministic basic review when AI is unavailable). Denominator: 100.
+                      Ready at 70 or above. Source: the lesson practice endpoint. Included: this one practice
+                      attempt. Excluded: it is practice feedback — it never grants a Verified Skill and never
+                      changes your level.
+                    </WhyThis>
                   </div>
                 </div>
                 <div className="practice-source">
@@ -1936,17 +2107,24 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
               >
                 <IconChat size={15} /> Open AI Tutor
               </button>
-            </div>
-            {!isCompleted && <button className="btn btn-primary" onClick={nextTab} style={{ marginTop: 12 }}>Continue to Mini Check</button>}
-          </div>
-        )}
-        {tab === 'mini_check' && (
+             </div>
+           </div>
+         )}
+         {tab === 'mini_check' && (
           <div className="lesson-mini-check">
             <h3>Mini Check</h3>
             {result ? (
               <div className={`lesson-result ${result.passed ? 'passed' : 'failed'}`}>
                 <div className="lesson-result-score">{Math.round(result.score * 100)}%</div>
                 <div className="lesson-result-detail">{result.correct}/{result.total} correct</div>
+                <div className="muted small">
+                  <WhyThis>
+                    Numerator: Mini Check questions answered correctly. Denominator: total Mini Check questions
+                    (shown above as correct/total). Source: the lesson Mini Check endpoint. Rounding: nearest
+                    whole percent. Passed at 70%. Included: this Mini Check only — passing completes the topic
+                    but never grants a Verified Skill, which only a Final Assessment can do.
+                  </WhyThis>
+                </div>
                 {result.passed ? (
                   <div className="lesson-result-msg passed-msg"><IconCheck size={16} /> Passed — topic completed!</div>
                 ) : (
@@ -1958,9 +2136,17 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
                   {result.passed && <button className="btn" onClick={onClose}>Back to Path</button>}
                 </div>
               </div>
-            ) : (
-              <>
-                {content.mini_check.questions.map((q) => (
+             ) : isCompleted ? (
+               <div className="lesson-result lesson-completed-result">
+                 <div className="lesson-result-msg passed-msg"><IconCheck size={16} /> Topic completed. This lesson is already saved and cannot be changed.</div>
+                 <div className="lesson-result-actions">
+                   {hasNext && onNext && <button className="btn btn-primary" onClick={onNext}>Next Lesson <IconArrowRight size={15} /></button>}
+                   <button className="btn" onClick={onClose}>Back to Path</button>
+                 </div>
+               </div>
+             ) : (
+                 <>
+                 {content.mini_check.questions.map((q) => (
                   <div className="lesson-question" key={q.id}>
                     <p className="lesson-q-text">{q.question}</p>
                     {q.type === 'mcq' && q.options && (
@@ -1979,10 +2165,11 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
                         placeholder="Type your answer..." />
                     )}
                   </div>
-                ))}
-                <button className="btn btn-primary" onClick={submitMiniCheck} disabled={submitting}>
-                  {submitting ? 'Scoring...' : 'Submit Mini Check'}
-                </button>
+                 ))}
+                 {miniCheckError && <div className="mini-check-error error learning-error" role="alert">{miniCheckError}</div>}
+                 <button className="btn btn-primary" onClick={submitMiniCheck} disabled={submitting}>
+                   {submitting ? 'Scoring...' : 'Submit Mini Check'}
+                 </button>
               </>
             )}
           </div>
@@ -1992,23 +2179,25 @@ function LessonView({ studentId, skillId, skillName, competency, pathItem, pathI
   )
 }
 
-function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, startSignal = 0, focusSignal, onPathChange, onCompetencyChange }: {
+function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, startSignal = 0, focusSignal, initialPath, onPathChange, onCompetencyChange }: {
   studentId: number
   skillId: number
   skillName: string
   refreshKey?: number
   startSignal?: number
   focusSignal?: { competency: string; signal: number; tab?: 'learn' | 'example' | 'practice' | 'discuss' | 'mini_check' } | null
+  initialPath?: PersonalizedPath | null
   onPathChange?: (path: PersonalizedPath | null) => void
   onCompetencyChange?: (competency: string | null) => void
 }) {
-  const [path, setPath] = useState<PersonalizedPath | null>(null)
+  const [path, setPath] = useState<PersonalizedPath | null>(initialPath ?? null)
   const [ready, setReady] = useState(false)
-  const [diagnosticDone, setDiagnosticDone] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
+  const [diagnosticDone, setDiagnosticDone] = useState(Boolean(initialPath))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [showMastered, setShowMastered] = useState(false)
-  const [done, setDone] = useState<string[]>([])
+  const [done, setDone] = useState<string[]>(initialPath ? [...initialPath.progress] : [])
   const [lessonStates, setLessonStates] = useState<Record<string, Lesson['state']>>({})
   const [lessonReviews, setLessonReviews] = useState<Record<string, { passed?: boolean } | null>>({})
   const [showAllTopics, setShowAllTopics] = useState(false)
@@ -2041,22 +2230,15 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
     const entries = await Promise.all(nextPath.items.map(async (item) => {
       try {
         const lesson = await api.lessonGet(studentId, skillId, item.competency)
-        return [item.competency, lesson.state] as const
+        return [item.competency, lesson.state, lesson.mini_check_result] as const
       } catch {
-        return [item.competency, 'not_started' as Lesson['state']] as const
+        return [item.competency, 'not_started' as Lesson['state'], null] as const
       }
     }))
-    const states = Object.fromEntries(entries) as Record<string, Lesson['state']>
+    const states = Object.fromEntries(entries.map(([competency, state]) => [competency, state])) as Record<string, Lesson['state']>
+    const reviews = Object.fromEntries(entries.map(([competency, , review]) => [competency, review])) as Record<string, { passed?: boolean } | null>
     setLessonStates(states)
-    const reviews = await Promise.all(nextPath.items.map(async (item) => {
-      try {
-        const lesson = await api.lessonGet(studentId, skillId, item.competency)
-        return [item.competency, lesson.mini_check_result ?? null] as const
-      } catch {
-        return [item.competency, null] as const
-      }
-    }))
-    setLessonReviews(Object.fromEntries(reviews) as Record<string, { passed?: boolean } | null>)
+    setLessonReviews(reviews)
     return states
   }
 
@@ -2090,12 +2272,8 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
         setDiagnosticDone(true)
         onPathChange?.(res)
       }
-    } catch {
-      setPath(null)
-      setDone([])
-      setLessonStates({})
-      setDiagnosticDone(false)
-      onPathChange?.(null)
+    } catch (e: unknown) {
+      setError(failureMessage(e, 'en', 'This personalized path could not be loaded. Your saved progress is still safe.'))
     } finally {
       setReady(true)
     }
@@ -2109,7 +2287,7 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
       void loadPath()
       void loadFinalStatus()
     }
-  }, [studentId, skillId, refreshKey])
+  }, [studentId, skillId, refreshKey, retryKey])
 
   const create = async (autoOpen = false) => {
     setBusy(true)
@@ -2130,7 +2308,7 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
         if (autoOpen) openCurrentTopic(res, states)
       }
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'Could not create your learning path')
+      setError(failureMessage(e, 'en', 'Could not create your learning path. Your existing progress is still safe.'))
     } finally {
       setBusy(false)
     }
@@ -2228,7 +2406,12 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
         </div>
       )}
 
-      {error && <div className="error learning-error">{error}</div>}
+      {error && (
+        <div className="error learning-error path-panel-error" role="alert">
+          <span>{error}</span>
+          <button type="button" className="btn btn-sm" onClick={() => setRetryKey((key) => key + 1)}>Retry path</button>
+        </div>
+      )}
 
       {!path && diagnosticDone && (
         <div className="pp-create-call">
@@ -2258,7 +2441,13 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
             <div className="lp-track"><span style={{ width: `${progress.pct}%` }} /></div>
             <p className="muted small">
               Topics complete only after a Mini Check pass. This does not create a Verified Skill.{' '}
-              <WhyThis>Study progress never grants a Verified Skill — only a proctored Final Assessment on the Assessments page does. This number tracks lessons whose Mini Check you passed, nothing more.</WhyThis>
+              <WhyThis>
+                Numerator: topics on this personalized path whose Mini Check you passed. Denominator: topics on
+                this path. Source: GET /api/students/&lt;id&gt;/learning/&lt;skillId&gt;/personalized-path (progress list).
+                Rounding: nearest whole percent. Included: Mini Check completions for this path. Excluded:
+                diagnostic mastery and Final Assessments. Study progress never grants a Verified Skill — only a
+                proctored Final Assessment on the Assessments page does.
+              </WhyThis>
             </p>
           </div>
 
@@ -2283,6 +2472,12 @@ function PersonalizedPathPanel({ studentId, skillId, skillName, refreshKey = 0, 
                     <h4>{humanizeTopicLabel(item.title)}</h4>
                     <p className="muted small">
                       Added because your diagnostic score was <strong>{Math.round(item.diagnostic_score)}%</strong>.
+                      {' '}<WhyThis>
+                        Numerator: correctly answered questions for this topic on your diagnostic. Denominator:
+                        questions asked for this topic. Source: the saved diagnostic for this skill. Rounding:
+                        nearest whole percent. A low score is why the topic is on the path; a mastered topic is
+                        skipped instead. It never counts toward verification.
+                      </WhyThis>
                       {' '}<span className="pp-est"><IconClock size={13} /> ~{item.estimated_minutes} min</span>
                     </p>
                   </div>
@@ -2495,6 +2690,14 @@ function VerificationReport({ studentId, map }: { studentId: number; map: Career
         <div className="vr-score"><span>Coverage</span><b>{coveragePct}%</b></div>
         <div className="vr-score"><span>Personalization</span><b>{personalizationPct}%</b></div>
       </div>
+      <p className="small muted">
+        <WhyThis>
+          These scores grade the generated career roadmap, not your profile. Coverage is the share of the
+          role's required topics the roadmap addresses; personalization is the share that references your CV
+          and target role. Source: the roadmap validator (live or labelled fallback). Rounding: nearest whole
+          percent. Excluded: they are not requirement coverage, not verified skills and not a hiring signal.
+        </WhyThis>
+      </p>
       <ul className="vr-checks">
         {(report.violations || []).map((v, i) => (
           <li key={i} className={v.passed ? 'pass' : 'fail'}>

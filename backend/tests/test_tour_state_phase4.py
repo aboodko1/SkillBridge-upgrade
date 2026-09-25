@@ -30,7 +30,8 @@ def test_migration_0015_creates_student_tour_state(tmp_path):
         assert {"student_id", "tour_version", "welcome_state",
                 "dont_show_again", "mini_states_json"} <= cols
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == "0016_mentor_ui_preferences"
+        assert "0015_student_tour_state" in applied
+        assert "0016_mentor_ui_preferences" in applied
         assert database.run_migrations() == []
     finally:
         database.set_db_for_test()

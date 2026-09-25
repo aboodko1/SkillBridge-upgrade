@@ -42,6 +42,18 @@ function EvidenceBadge({ value }: { value: string }) {
   return <span className={`mxb-ev ${cls}`}>{value}</span>
 }
 
+function basisLabel(matchedBy?: string | null) {
+  if (matchedBy === 'name_adjacent') return { label: 'adjacent name — partial credit', cls: 'self' }
+  if (matchedBy === 'name_exact') return { label: 'exact name match', cls: 'verified' }
+  if (matchedBy === 'id') return { label: 'exact skill match', cls: 'verified' }
+  return { label: 'no evidence — 0 credit', cls: 'none' }
+}
+
+function EvidenceBasis({ matchedBy }: { matchedBy?: string | null }) {
+  const b = basisLabel(matchedBy)
+  return <span className={`mxb-ev ${b.cls}`} style={{ display: 'inline-block', marginTop: 4 }}>{b.label}</span>
+}
+
 function TargetRoleView({ data }: { data: TargetRoleMatchBreakdown }) {
   return (
     <>
@@ -61,7 +73,15 @@ function TargetRoleView({ data }: { data: TargetRoleMatchBreakdown }) {
               <td>{humanizeTopicLabel(r.skill_name)}</td>
               <td>{r.required_level || '—'}</td>
               <td>{r.student_level || '—'}</td>
-              <td><EvidenceBadge value={r.evidence} /></td>
+              <td style={{ whiteSpace: 'normal' }}>
+                <EvidenceBadge value={r.evidence} />
+                <EvidenceBasis matchedBy={r.matched_by} />
+                {r.matched_by === 'name_adjacent' && r.matched_skill && (
+                  <span className="mxb-note" style={{ display: 'block', marginTop: 2 }}>
+                    via “{humanizeTopicLabel(r.matched_skill)}”
+                  </span>
+                )}
+              </td>
               <td className="num">{r.contribution_points}</td>
             </tr>
           ))}
@@ -200,7 +220,14 @@ export default function MatchBreakdown({ kind, pct, onRequest }: MatchBreakdownP
       <div className="mxb-body">
         {data && (
           <p className="mxb-meta">
-            {data.formula} · {data.version} · data {data.role_data_version} · {new Date(data.as_of).toLocaleString()}
+            {data.formula} · {data.version} · role data {data.role_data_version} · breakdown generated {new Date(data.as_of).toLocaleString()} · last recalculated: Not available
+          </p>
+        )}
+        {data && kind === 'target-role' && (
+          <p className="mxb-note">
+            “Verified” here means a passed Final Assessment only. Self-reported CV skills earn credit but are
+            never called verified. An adjacent-name match (related wording, not the exact skill) earns reduced
+            credit and can never be counted as a strong match.
           </p>
         )}
         {error && <div className="error mxb-err">Could not explain this match: {error}</div>}

@@ -57,6 +57,7 @@ function Shell() {
   const [demo, setDemo] = React.useState<{ genai_enabled: boolean; email_configured: boolean } | null>(null)
   const [copilotSettingsOpen, setCopilotSettingsOpen] = React.useState(false)
   const [copilotOnboardingForce, setCopilotOnboardingForce] = React.useState(false)
+  const userChipRef = React.useRef<HTMLButtonElement | null>(null)
 
   React.useEffect(() => {
     api.demoMode().then(setDemo).catch((e) => console.error('[app] demo-mode config failed:', e))
@@ -219,7 +220,7 @@ function Shell() {
               )}
             </div>
             <div className="topbar-popover-anchor">
-              <button className="user-chip" aria-label={`Account menu for ${me?.display_name || session.display_name}`}
+              <button className="user-chip" ref={userChipRef} aria-label={`Account menu for ${me?.display_name || session.display_name}`}
                 title={me?.display_name || session.display_name}
                 aria-haspopup="menu" aria-expanded={userMenuOpen}
                 onClick={(e) => { e.stopPropagation(); setUserMenuOpen((v) => !v) }}>
@@ -256,7 +257,7 @@ function Shell() {
                     <button
                       className="btn btn-ghost popover-logout"
                       role="menuitem"
-                      onClick={() => { setUserMenuOpen(false); tour.replay() }}
+                      onClick={() => { setUserMenuOpen(false); tour.replay(userChipRef.current) }}
                     ><IconRoadmap size={15} /> Replay product tour</button>
                   )}
                   <button className="btn btn-ghost popover-logout" role="menuitem" onClick={logout}><IconLogout size={15} /> Log out</button>

@@ -1918,6 +1918,12 @@ def normalise_listing(j, fetched_at=None):
     description = item.get("description", "")
     seniority_label = _seniority_label(item)
 
+    try:
+        _scheme = (urllib.parse.urlparse(url).scheme or "").lower()
+    except Exception:
+        _scheme = ""
+    apply_safe = bool(url) and link_state not in ("rejected", "dead") and _scheme in ("http", "https")
+
     item.update({
         "provider": source,
         "provider_job_id": provider_job_id or None,
@@ -1929,6 +1935,7 @@ def normalise_listing(j, fetched_at=None):
         "seniority": seniority_label,
         "description_excerpt": description[:_DESCRIPTION_EXCERPT_LEN],
         "apply_url": url,
+        "apply_safe": apply_safe,
         "published_date": raw_date,
         "fetched_at": datetime.fromtimestamp(fetched_at, tz=timezone.utc).isoformat(),
         "listing_status": listing_status,
@@ -1947,6 +1954,7 @@ def normalise_listing(j, fetched_at=None):
                 "basis": "provider_field" if employment_type else "unknown",
             },
             "is_expired": {"value": is_expired, "basis": "provider_signal"},
+            "apply_url": {"value": url, "basis": "provider_field" if url else "unknown"},
         },
         "observed_salary": [salary] if salary else [],
         "observed_employment_type": [employment_type] if employment_type else [],
@@ -2033,15 +2041,17 @@ def _merge(raw_jobs):
             prev_rank = _link_rank.get(prev.get("link_state"), 1)
             new_rank = _link_rank.get(new.get("link_state"), 1)
             if new_rank > prev_rank:
-                merged_item["url"] = new["url"]
-                merged_item["apply_url"] = new["apply_url"]
-                merged_item["link_state"] = new["link_state"]
-                merged_item["link_reason"] = new.get("link_reason", "")
+                chosen_link = new
             elif new_rank < prev_rank:
-                merged_item["url"] = prev["url"]
-                merged_item["apply_url"] = prev["apply_url"]
-                merged_item["link_state"] = prev["link_state"]
-                merged_item["link_reason"] = prev.get("link_reason", "")
+                chosen_link = prev
+            else:
+                chosen_link = None
+            if chosen_link is not None:
+                merged_item["url"] = chosen_link["url"]
+                merged_item["apply_url"] = chosen_link["apply_url"]
+                merged_item["link_state"] = chosen_link["link_state"]
+                merged_item["link_reason"] = chosen_link.get("link_reason", "")
+                merged_item["apply_safe"] = chosen_link.get("apply_safe", False)
             merged_item["listing_status"] = (
                 "link-unavailable"
                 if merged_item.get("link_state") in ("dead", "rejected")

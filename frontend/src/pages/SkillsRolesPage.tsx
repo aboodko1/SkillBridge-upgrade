@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import { RELOCATION_MARKETS, marketLabel } from '../lib/markets'
 import type { RoleRecord, Student, Skill, RolesResponse, EscoOccupation, Analysis, RoleRecommendation, RoleRecommendationsResponse, SavedRolesResponse, ScenarioLibrary, RoleMappingMatch, RoleMappingTarget, RoleMappingEvent, RecentRole, RoleProvenance, RecentJob, RecentJobsResponse, CanonicalMetricKey } from '../lib/types'
 import { IconPlus, IconEdit, IconTrash, IconUpload, IconSearch, IconCheck, IconAlert, IconTarget, IconBookmark, IconCompare, IconBack, IconShield, IconBolt, IconArrowRight } from '../components/Icons'
-import { SkillTag, GapPill } from '../components/widgets'
+import { SkillTag, GapPill, ScoreExplain } from '../components/widgets'
 import { IconRoles } from '../components/Icons'
 import { MiniTourBanner } from '../components/ProductTour'
 import { ConfirmModal, ToastRegion, useToast } from '../components/ui'
@@ -392,7 +392,7 @@ function RoleCard({ r, selected, onSelect, selectable, dest, chips }: {
             </span>
           ) : <span />}
           {selectable && (
-            <button className={`btn btn-sm ${selected ? '' : 'btn-primary'}`} onClick={onSelect} disabled={selected}>
+            <button className="btn btn-sm srb-btn-outline" onClick={onSelect} disabled={selected}>
               {selected ? '✓ Target Career' : 'Select as target'}
             </button>
           )}
@@ -452,7 +452,7 @@ function RecommendationCard({ rec, selected, onSelect, busy, saved, onToggleSave
             <IconBookmark size={15} /> <span>{saved ? 'Saved' : 'Save'}</span>
           </button>
         )}
-        <button className={`btn btn-sm ${selected ? '' : 'btn-primary'}`} onClick={onSelect} disabled={selected || busy}>
+        <button className="btn btn-sm srb-btn-outline" onClick={onSelect} disabled={selected || busy}>
           {busy ? 'Selecting…' : selected ? '✓ Target Career' : 'Select as target'}
         </button>
       </div>
@@ -484,9 +484,49 @@ function MatchRing({ pct, size = 88, label }: { pct: number | null; size?: numbe
     >
       <div className="srb-match-inner">
         {pct == null ? <span className="srb-match-none">—</span> : <strong>{safe}%</strong>}
-        {label && <span className="srb-match-label">{visibleLabel}</span>}
+        {label && size >= 88 && <span className="srb-match-label">{visibleLabel}</span>}
       </div>
     </div>
+  )
+}
+
+function CoverageExplain({ pct, metricLabel }: { pct: number | null; metricLabel?: string }) {
+  if (pct == null) return null
+  return (
+    <ScoreExplain
+      summary="How is this match calculated?"
+      metric={metricLabel || 'Target requirement coverage'}
+      metricKey="target_requirement_coverage"
+      numerator="sum of per-required-skill credit (0–1 each)"
+      denominator="count of the role's required skills"
+      source="GET /api/students/{id}/role-recommendations → match_score (matching.job_match_score)"
+      rounding="1 decimal (backend), then shown as a whole percent"
+      evidence="Best available evidence per skill: verified (passed Final Assessment) outranks self-reported. Adjacent-name evidence earns reduced credit."
+      included="Every required skill of this role."
+      excluded="Skills that are not requirements of this role. Required skills with no evidence earn 0 and stay in the denominator."
+      missing="Open the role details breakdown for the per-skill numerator and which requirement has no evidence."
+      reported="Only a passed Final Assessment marks a skill verified."
+    />
+  )
+}
+
+function CatalogueExplain({ pct }: { pct: number | null }) {
+  if (pct == null) return null
+  return (
+    <ScoreExplain
+      summary="How is this similarity calculated?"
+      metric="Catalogue similarity"
+      metricKey="catalogue_similarity"
+      numerator="count of required skill names present on the profile by exact name"
+      denominator="count of the role's required skills"
+      source="Role catalogue + your self-reported/verified skill names (name overlap only)"
+      rounding="1 decimal, then shown as a whole percent"
+      evidence="Name presence only — self-reported or CV-detected. Levels and verification are ignored."
+      included="Required skill names that exactly match a skill name on your profile."
+      excluded="Skill levels, assessment evidence, and differently-worded (adjacent) skills."
+      missing="This is not a competence or verification claim and is never shown as a verified match."
+      reported="A high similarity can still include skills you have not verified; check the gap map."
+    />
   )
 }
 
@@ -520,8 +560,13 @@ function RoleLibraryCard({ r, pct, metricLabel, selected, dest, chips, statusCou
             {` · ${roleExperience(r)}`}
           </p>
         </div>
-        <MatchRing pct={noCvSkills ? null : pct} size={72} label={metricLabel} />
+        <MatchRing pct={noCvSkills ? null : pct} size={88} label={metricLabel} />
       </header>
+      {!noCvSkills && pct != null && (
+        metricLabel && /similarity/i.test(metricLabel)
+          ? <CatalogueExplain pct={pct} />
+          : <CoverageExplain pct={pct} metricLabel={metricLabel} />
+      )}
       {r.description && <p className="srb-role-desc">{r.description.length > 140 ? `${r.description.slice(0, 137)}…` : r.description}</p>}
       {noCvSkills ? (
         <div className="srb-chiprow">
@@ -553,7 +598,7 @@ function RoleLibraryCard({ r, pct, metricLabel, selected, dest, chips, statusCou
           </button>
         )}
         <button type="button" className="btn btn-sm srb-btn-outline" onClick={onDetails}>View details</button>
-        <button type="button" className="btn btn-sm btn-primary" onClick={onSelect} disabled={selected}>
+        <button type="button" className="btn btn-sm srb-btn-outline" onClick={onSelect} disabled={selected}>
           {selected ? '✓ Target' : 'Select as target'}
         </button>
       </footer>
@@ -653,7 +698,7 @@ function RoleDetailsModal({ role, noCvSkills, profileByName, cvSkillNames, selec
             <IconBookmark size={15} /> <span>{saved ? 'Saved' : 'Save role'}</span>
           </button>
           <button type="button" className="btn btn-sm srb-btn-outline" onClick={onClose}>Close</button>
-          <button type="button" className="btn btn-sm btn-primary" onClick={onSelect} disabled={selected || busy}>
+          <button type="button" className="btn btn-sm srb-btn-outline" onClick={onSelect} disabled={selected || busy}>
             {selected ? '✓ Target Career' : busy ? 'Selecting…' : 'Select as target'}
           </button>
         </footer>
@@ -804,6 +849,11 @@ function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, evi
                 </>}
           </div>
         </div>
+        {!noCvSkills && match.pct != null && (
+          match.metric === 'catalogue_similarity'
+            ? <CatalogueExplain pct={match.pct} />
+            : <CoverageExplain pct={match.pct} metricLabel={match.metricLabel} />
+        )}
         {hasKinds ? skillList('Essential skills', essRows) : skillList('Required skills', rows)}
         {hasKinds && optRows.length > 0 && skillList('Optional skills', optRows)}
         {!noCvSkills && learningGaps.length > 0 && (
@@ -928,7 +978,7 @@ function RoleDetailsDrawer({ role, others, match, noCvSkills, profileByName, evi
             <IconCompare size={15} /> <span>{inCompare ? 'In compare' : 'Compare'}</span>
           </button>
           <button type="button" className="btn btn-sm srb-btn-outline" onClick={onClose}>Close</button>
-          <button type="button" className="btn btn-sm btn-primary" onClick={onSelect} disabled={selected || busy}>
+          <button type="button" className="btn btn-sm srb-btn-outline" onClick={onSelect} disabled={selected || busy}>
             {selected ? '✓ Target Career' : busy ? 'Selecting…' : 'Select as target'}
           </button>
         </footer>
@@ -1117,7 +1167,7 @@ function CompareModal({ roles, matches, profileByName, evidence, scenarioNoteFor
                   onClick={() => firstGap?.skill_id && onLearn(firstGap.skill_id)} disabled={!firstGap?.skill_id}>
                   Start learning
                 </button>
-                <button type="button" className="btn btn-sm btn-primary" onClick={() => onSelect(r)} disabled={busy}>
+                <button type="button" className="btn btn-sm srb-btn-outline" onClick={() => onSelect(r)} disabled={busy}>
                   Select as target
                 </button>
               </div>
@@ -1896,7 +1946,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
                 <article className="srb-ref-card" key={r.id}>
                   <div className="srb-ref-top">
                     <span className="chip chip-catalog">Catalog</span>
-                    <MatchRing pct={matchPctOf(r, cvSkillNames)} size={70} label="catalogue similarity" />
+                    <MatchRing pct={matchPctOf(r, cvSkillNames)} size={88} label="catalogue similarity" />
                   </div>
                   <h4 className="srb-ref-title">{r.title}</h4>
                   <p className="srb-ref-gap">
@@ -1917,7 +1967,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
                     </button>
                     <button
                       type="button"
-                      className={`btn btn-sm ${isTarget ? '' : 'btn-primary'}`}
+                      className="btn btn-sm srb-btn-outline"
                       disabled={isTarget}
                       onClick={() => chooseTarget(r.id)}
                     >
@@ -2241,7 +2291,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
                     {o.skills.length > 5 && <span className="muted small">+{o.skills.length - 5} more</span>}
                   </div>
                   <button
-                    className={`btn btn-sm ${student?.target_role?.external_id === o.uri ? '' : 'btn-primary'}`}
+                    className="btn btn-sm srb-btn-outline"
                     style={{ alignSelf: 'flex-end', whiteSpace: 'nowrap' }}
                     disabled={student?.target_role?.external_id === o.uri || marketSelecting === o.uri}
                     onClick={() => selectMarketTarget(o)}
@@ -2340,6 +2390,7 @@ function StudentBrowse({ student, analysis, onNavigate, backTo }: { student?: St
             {targetPct === null && <p className="sro3-gap-sub">{noCvSkills ? 'Upload a CV so matching can begin.' : 'Pick a target career to see your gap map.'}</p>}
           </div>
         </div>
+        <CoverageExplain pct={targetPct} metricLabel="Requirement coverage" />
         {analysis && analysis.skill_gaps && analysis.skill_gaps.length > 0 ? (
           <div className="sro3-gap-list">
             {analysis.skill_gaps.map((g) => (

@@ -41,7 +41,7 @@ ok(/welcome_state: 'skipped'/.test(tour) && /dont_show_again: true/.test(tour),
   'skip -> skipped; dont-show-again -> skipped + flag')
 
 // ---- 4. Replay entry lives in the account menu.
-ok(/tour\.replay\(\)/.test(app) && /Replay product tour/.test(app), 'account menu replays the tour')
+ok(/tour\.replay\(/.test(app) && /Replay product tour/.test(app), 'account menu replays the tour')
 
 // ---- 5. Contextual mini-tours on the three pages, dismissible, non-modal.
 ok(/role="note"/.test(tour) && /MiniTourBanner/.test(tour), 'mini-tour banner is non-modal note')

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../AppContext'
 import { api } from '../lib/api'
 import { SectionTitle } from '../components/learning'
+import { ScoreExplain } from '../components/widgets'
 import {
   IconArrowRight, IconBack, IconBolt, IconCheck, IconChat, IconClock, IconEye, IconLightbulb,
   IconShield, IconTrophy, IconUsers,
@@ -287,6 +288,18 @@ function LibraryView({
           <div><strong>{stats.skills_practiced}</strong><span>Skills practiced</span></div>
         </div>
       </div>
+      <ScoreExplain
+        summary="How is the average scenario score calculated?"
+        metric="Average scenario score"
+        numerator="sum of the score of every completed scenario attempt"
+        denominator="number of completed scenario attempts"
+        source="GET /api/students/{id}/scenarios → stats.average_score (scenarios.py)"
+        rounding="nearest whole percent"
+        evidence="Your own in-scenario decisions and evidence use, scored per component and weighted, minus hint penalties."
+        included="Completed attempts only. A scenario replayed counts each completed attempt."
+        excluded="In-progress or abandoned attempts. This is practice feedback and never a Verified Skill or a profile match."
+        missing="With no completed attempts, no average is shown (—)."
+      />
 
       {hasTarget && recommendedNext && (
         <section className="panel scn-next hcard-action" aria-label="Recommended next scenario">
@@ -435,7 +448,7 @@ function ScenarioCardView({ scn, recommended, hasTarget, onStart, onDetails }: {
       <div className="scn-card-foot">
         {scn.status === 'in_progress' && <span className="scn-status in-progress">In progress</span>}
         {scn.status === 'completed' && scn.best_score != null && (
-          <span className="scn-score"><IconTrophy size={13} /> Best {scn.best_score}%</span>
+          <span className="scn-score" title="Your highest completed-attempt score for this scenario (fixed at completion)."><IconTrophy size={13} /> Best {scn.best_score}%</span>
         )}
         {scn.status === 'completed' && scn.attempts_count > 1 && <span className="scn-attempts">{scn.attempts_count} attempts</span>}
         <div className="scn-card-actions">
@@ -479,7 +492,7 @@ function ScenarioDetail({ scn, hasTarget, onClose, onStart }: {
           <span><strong>{scn.steps_count}</strong> steps</span>
           <span><strong>{scn.skills.length}</strong> skills practiced</span>
           {scn.status === 'in_progress' && <span className="scn-status in-progress">In progress</span>}
-          {scn.status === 'completed' && scn.best_score != null && <span className="scn-score"><IconTrophy size={13} /> Best {scn.best_score}%</span>}
+          {scn.status === 'completed' && scn.best_score != null && <span className="scn-score" title="Your highest completed-attempt score for this scenario (fixed at completion)."><IconTrophy size={13} /> Best {scn.best_score}%</span>}
         </div>
         <p className="scn-modal-sub">Skills you will practice</p>
         <div className="scn-skills scn-modal-skills">
@@ -790,6 +803,19 @@ function ResultsView({ result, onReplay, onBack, onNavigate }: {
           <span className="scn-verdict">{result.verdict_label}</span>
         </div>
       </div>
+      <ScoreExplain
+        summary="How is this scenario score calculated?"
+        metric="Scenario weighted performance"
+        numerator={`each component's earned points ÷ its available points, weighted by component, then minus ${result.hints_used > 0 ? `${result.hints_used} hint penalty` : 'no hint penalty'}`}
+        denominator="total available points across the components you actually encountered (100 in percent terms)"
+        source="POST /api/scenarios/{id}/attempts…/decide → completed attempt score (scenarios._overall)"
+        rounding="nearest whole percent (component percentages are rounded first)"
+        evidence="Your own decisions and the evidence you opened in this scenario. Strong/weak here reflects scenario component categories (e.g. investigation, threat analysis, decision making), not your verified profile."
+        included="Steps you reached, decisions you made, and evidence you viewed."
+        excluded="Decisions you never reached. Hints you used reduce the score by a fixed penalty."
+        missing="A component you never encountered is left out of the weighted average rather than scored zero."
+        reported="Scenario scores are practice feedback; they never grant a Verified Skill and are separate from your profile match."
+      />
 
       <div className="scn-results-grid">
         <section className="panel scn-result-section">
@@ -840,6 +866,7 @@ function ResultsView({ result, onReplay, onBack, onNavigate }: {
       <section className="panel scn-result-section">
         <SectionTitle eyebrow="Overview" title="Profile signals" />
         {result.match.before != null ? (
+          <>
           <div className="scn-match">
             <div className="scn-match-score">
               <span className="scn-match-val">{result.match.before}%</span>
@@ -856,6 +883,21 @@ function ResultsView({ result, onReplay, onBack, onNavigate }: {
               </span>
             )}
           </div>
+          <ScoreExplain
+            summary="How are match before / after calculated?"
+            metric="Target requirement coverage"
+            metricKey="target_requirement_coverage"
+            numerator="sum of per-required-skill credit for your target role (0–1 each)"
+            denominator="count of your target role's required skills"
+            source="matching.job_match_score before and after this scenario (same canonical metric as the Dashboard ring)"
+            rounding="1 decimal in the backend; shown here as a whole percent"
+            evidence="Best available evidence per required skill (verified outranks self-reported). Scenario practice can lift a skill's confidence but does not verify it."
+            included="Every required skill of your target role, using your profile evidence at each point."
+            excluded="Skills outside your target role. Practicing a scenario never creates a Verified Skill — verification still needs an Assessment."
+            missing="If you have no target role, no match is computed and this block is hidden."
+            reported="The delta is a coverage change, not a hiring prediction."
+          />
+          </>
         ) : (
           <p className="scn-muted">Set a target role on Skills & Roles to see how scenario practice moves your match score.</p>
         )}

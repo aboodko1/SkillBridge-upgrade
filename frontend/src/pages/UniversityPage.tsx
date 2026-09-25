@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { useApp } from '../AppContext'
 import type { UniversityStatsResponse, CohortResponse } from '../lib/types'
+import { ScoreExplain } from '../components/widgets'
 import { IconUniversity, IconAlert, IconCheck, IconVerified, IconShield } from '../components/Icons'
 
 export default function UniversityPage() {
@@ -92,6 +93,20 @@ export default function UniversityPage() {
               <span className="label">Average Match Score</span>
               <strong>{data.average_match_score != null ? Math.round(data.average_match_score) : '–'}%</strong>
               <small>Across the cohort</small>
+              <ScoreExplain
+                summary="How is the cohort average calculated?"
+                metric="Average target requirement coverage"
+                metricKey="target_requirement_coverage"
+                numerator="sum of each student's target requirement coverage"
+                denominator={`confirmed students with a target role${data.with_target_role != null ? ` (${data.with_target_role})` : ''}`}
+                source="GET /api/analytics/university-stats (aggregated from matching.analyze_student)"
+                rounding="1 decimal per student in the backend; the displayed average is a whole percent"
+                evidence="Per student: best available evidence per required skill (verified outranks self-reported). Identical arithmetic to the student Dashboard ring."
+                included="Every confirmed cohort student who has a target role."
+                excluded="Students without a target role, and any individual-level data — only anonymized aggregates are returned."
+                missing="A student with no target role contributes nothing to the average rather than a zero."
+                reported="This is requirement coverage, not verified-evidence coverage and not a hiring prediction."
+              />
             </div>
             <div className="stat-card hcard-progress">
               <span className="label">Verified Skills Earned</span>
@@ -111,6 +126,19 @@ export default function UniversityPage() {
               <span className="u-leg"><span className="seg-missing" /> Missing</span>
               <span className="u-leg pushed"><span className="u-need" /> % need improvement</span>
             </div>
+            <ScoreExplain
+              summary="How is “% need improvement” calculated?"
+              metric="Cohort need-improvement share"
+              numerator="students in the gap or missing bucket for that skill"
+              denominator="students with that skill on their target role's requirement list"
+              source="GET /api/analytics/university-stats → skill_stats[].need_improvement_pct"
+              rounding="1 decimal in the backend"
+              evidence="Uses the same per-skill status as the student gap map: strong / gap / missing. Adjacent-name evidence counts as a gap, never strong."
+              included="Every confirmed cohort student whose target role requires the skill."
+              excluded="Students whose target role does not require the skill. No individual student is identifiable."
+              missing="A skill with no students is not shown."
+              reported="This is a gap share across the cohort, not a pass rate and not a verified-skill claim."
+            />
             <div className="u-bars">
               {(data.skill_stats || []).map((s) => {
                 const total = Math.max(1, s.strong + s.gap + s.missing)

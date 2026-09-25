@@ -1,3 +1,5 @@
+from datetime import date
+
 from app import jobs
 
 
@@ -136,7 +138,7 @@ def test_adzuna_unsupported_country_is_skipped_not_remapped(monkeypatch):
             return {"results": [{
                 "title": "Junior Data Analyst",
                 "redirect_url": "https://example.test/adzuna",
-                "created": "2026-08-20",
+                "created": date.today().isoformat(),
                 "location": {"display_name": "London, United Kingdom"},
                 "company": {"display_name": "Acme Analytics"},
                 "category": {"label": "Data"},
@@ -189,7 +191,7 @@ def test_adzuna_explicit_uk_market_uses_gb_endpoint(monkeypatch):
             return {"results": [{
                 "title": "Junior Data Analyst",
                 "redirect_url": "https://example.test/adzuna",
-                "created": "2026-08-20",
+                "created": date.today().isoformat(),
                 "location": {"display_name": "London, United Kingdom"},
                 "company": {"display_name": "Acme Analytics"},
                 "category": {"label": "Data"},
@@ -253,7 +255,7 @@ def test_existing_job_providers_still_work_when_adzuna_fails(monkeypatch):
                 "title": "Data Analyst (Entry)",
                 "company_name": "Remote Data Co",
                 "url": "https://example.test/remotive",
-                "publication_date": "2026-08-21",
+                "publication_date": date.today().isoformat(),
                 "candidate_required_location": "Remote",
                 "tags": ["SQL", "Data"],
             }]})
@@ -261,7 +263,7 @@ def test_existing_job_providers_still_work_when_adzuna_fails(monkeypatch):
             "position": "Junior Data Analyst",
             "company": "RemoteOK Data",
             "url": "https://example.test/remoteok",
-            "date": "2026-08-22",
+            "date": date.today().isoformat(),
             "location": "Remote",
             "tags": ["SQL"],
         }])
@@ -350,7 +352,7 @@ def test_jooble_results_can_be_included(monkeypatch):
     monkeypatch.setenv("JOOBLE_API_KEY", "test-key")
     monkeypatch.setattr(jobs.httpx, "post", fake_post)
     out = jobs._fetch_jooble(5, ["data", "analyst"], "Egypt")
-    assert captured["url"] == "https://api.jooble.org/api/test-key"
+    assert captured["url"] == "https://jooble.org/api/test-key"
     assert captured["body"]["keywords"] == "data analyst"
     assert captured["body"]["location"] == "Egypt"
     assert out[0]["source"] == "Jooble"
@@ -413,7 +415,7 @@ def test_jsearch_v5_result_normalisation(monkeypatch):
                 "job_employment_types": ["FULLTIME"],
                 "job_employment_type": "دوام كامل",
                 "job_publisher": "GulfTalent",
-                "job_posted_at_datetime_utc": "2026-08-21T10:00:00.000Z",
+                "job_posted_at_datetime_utc": f"{date.today().isoformat()}T10:00:00.000Z",
                 "job_city": "Cairo",
                 "job_state": "",
                 "job_country": "Egypt",
@@ -433,7 +435,7 @@ def test_jsearch_v5_result_normalisation(monkeypatch):
     assert out[0]["remote"] is True
     assert out[0]["country"] == "Egypt"
     assert "Cairo" in out[0]["location"]
-    assert out[0]["date"] == "2026-08-21"
+    assert out[0]["date"] == date.today().isoformat()
     assert out[0]["tags"][0] == "Fulltime"
     assert out[0]["tags"][-1] == "GulfTalent"
 

@@ -133,7 +133,7 @@ def test_migration_0014_adds_live_meta_columns(tmp_path):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(tutor_conversations)")}
         assert {"mode", "language"} <= cols
         applied = [m["migration_id"] for m in database.applied_migrations()]
-        assert applied[-1] == "0016_mentor_ui_preferences"
+        assert "0016_mentor_ui_preferences" in applied
         assert database.run_migrations() == []
     finally:
         database.set_db_for_test()
